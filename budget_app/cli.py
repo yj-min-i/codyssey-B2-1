@@ -172,6 +172,32 @@ def cmd_budget_set(args, services):
     print(f"[저장 완료] {budget.month} 예산 {budget.amount}원")
 
 
+@track
+def cmd_category_add(args, services):
+    _, category_service, *_ = services
+    name = input("카테고리명: ").strip()
+    category = category_service.add(name)
+    print(f"[저장 완료] category={category.name}")
+
+
+@track
+def cmd_category_list(args, services):
+    _, category_service, *_ = services
+    names = category_service.list_names()
+    if not names:
+        print("데이터 없음")
+        return
+    for name in names:
+        print(f"- {name}")
+
+
+@track
+def cmd_category_remove(args, services):
+    tx_service, category_service, *_ = services
+    category_service.remove(args.name, tx_service.used_categories())
+    print(f"[삭제 완료] category={args.name}")
+
+
 COMMAND_HANDLERS = {
     "add": cmd_add,
     "list": cmd_list,
@@ -199,6 +225,14 @@ def main() -> int:
 
     if args.command == "budget" and args.budget_command == "set":
         return cmd_budget_set(args, services)
+
+    if args.command == "category":
+        if args.category_command == "add":
+            return cmd_category_add(args, services)
+        if args.category_command == "list":
+            return cmd_category_list(args, services)
+        if args.category_command == "remove":
+            return cmd_category_remove(args, services)
 
     if args.command in COMMAND_HANDLERS:
         return COMMAND_HANDLERS[args.command](args, services)
