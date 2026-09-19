@@ -7,6 +7,7 @@ from typing import List, Optional, Set, Union
 from .exceptions import NotFoundError, ValidationError
 from .models import Category
 from .storage import CategoryRepository
+from .utils import validate_date
 
 VALID_TYPES = ("income", "expense")
 DEFAULT_CATEGORIES = ("food", "transport", "rent", "etc")
@@ -48,3 +49,121 @@ class CategoryService:
             )
         remaining = [c for c in self.repo.iter_all() if c.name != name]
         self.repo.rewrite_all(remaining)
+
+class TransactionService:
+    def __init__(self, repo: TransactionRepository, category_service: CategoryService):
+        self.repo = repo
+        self.category_service = category_service
+
+    def _validate(self, type_: str, date: str, amount: Union[int, str], category: str) -> int:
+        if type_ not in VALID_TYPES:
+            raise ValidationError(
+                f"허용되지 않은 타입입니다: {type_}",
+                hint="income 또는 expense 중 하나를 입력하세요.",
+            )
+        validate_date(date)
+        try:
+            amount_int = int(amount)
+        except (TypeError, ValueError):
+            raise ValidationError(f"금액은 숫자여야 합니다: {amount}")
+        if amount_int <= 0:
+            raise ValidationError(
+                f"금액은 0보다 큰 양수여야 합니다: {amount_int}", hint="예: 15000"
+            )
+        if not self.category_service.exists(category):
+            raise ValidationError(
+                f"등록되지 않은 카테고리입니다: {category}",
+                hint="category add 로 먼저 등록하세요. 등록된 카테고리: "
+                + ", ".join(self.category_service.list_names()),
+            )
+        return amount_int
+
+    def add(
+        self,
+        type_: str,
+        date: str,
+        amount: Union[int, str],
+        category: str,
+        memo: str = "",
+        tags: Optional[List[str]] = None,
+    ) -> Transaction:
+        amount_int = self._validate(type_, date, amount, category)
+        tx = Transaction(
+            id=self.repo.next_id(),
+            type=type_,
+            date=date,
+            amount=amount_int,
+            category=category,
+            memo=memo,
+            tags=tags or [],
+        )
+        self.repo.append(tx)
+        return tx
+
+    def list_recent(self, limit: int = 10) -> List[Transaction]:
+        all_tx = sorted(self.repo.iter_all(), key=lambda t: (t.date, t.id), reverse=True)
+        return all_tx[:limit]
+
+    def search(
+        self,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        category: Optional[str] = None,
+        type_: Optional[str] = None,
+        q: Optional[str] = None,
+        tag: Optional[str] = None,
+    ) -> List[Transaction]:
+        results = []
+        for tx in self.repo.iter_all():
+            if date_from and tx.date < date_from:
+                continue
+            if date_to and tx.date > date_to:
+                continue
+            if category and tx.category != category:
+                continue
+            if type_ and tx.type != type_:
+                continue
+            if q and q not in tx.memo:
+                continue
+            if tag and tag not in tx.tags:
+                continue
+            results.append(tx)
+        results.sort(key=lambda t: (t.date, t.id), reverse=True)
+        return results
+
+    def update(self, tid: str, **fields) -> Transaction:
+        all_tx = list(self.repo.iter_all())
+        target = next((tx for tx in all_tx if tx.id == tid), None)
+        if target is None:
+            raise NotFoundError(f"존재하지 않는 거래 id입니다: {tid}")
+
+        new_type = fields.get("type") if fields.get("type") is not None else target.type
+        new_date = fields.get("date") if fields.get("date") is not None else target.date
+        new_category = (
+            fields.get("category") if fields.get("category") is not None else target.category
+        )
+        new_amount = fields.get("amount") if fields.get("amount") is not None else target.amount
+        new_memo = fields.get("memo") if fields.get("memo") is not None else target.memo
+        new_tags = fields.get("tags") if fields.get("tags") is not None else target.tags
+
+        amount_int = self._validate(new_type, new_date, new_amount, new_category)
+
+        target.type = new_type
+        target.date = new_date
+        target.category = new_category
+        target.amount = amount_int
+        target.memo = new_memo
+        target.tags = new_tags
+
+        self.repo.rewrite_all(all_tx)
+        return target
+
+    def delete(self, tid: str) -> None:
+        all_tx = list(self.repo.iter_all())
+        remaining = [tx for tx in all_tx if tx.id != tid]
+        if len(remaining) == len(all_tx):
+            raise NotFoundError(f"존재하지 않는 거래 id입니다: {tid}")
+        self.repo.rewrite_all(remaining)
+
+    def used_categories(self) -> Set[str]:
+        return {tx.category for tx in self.repo.iter_all()}
