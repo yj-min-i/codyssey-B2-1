@@ -7,7 +7,7 @@ from typing import List, Optional, Set, Union
 from .exceptions import NotFoundError, ValidationError
 from .models import Category
 from .storage import CategoryRepository
-from .utils import validate_date
+from .utils import validate_date, validate_month
 
 VALID_TYPES = ("income", "expense")
 DEFAULT_CATEGORIES = ("food", "transport", "rent", "etc")
@@ -167,3 +167,62 @@ class TransactionService:
 
     def used_categories(self) -> Set[str]:
         return {tx.category for tx in self.repo.iter_all()}
+
+class BudgetService:
+    def __init__(self, repo):
+        self.repo = repo
+
+    def set_budget(self, month: str, amount: Union[int, str]):
+        validate_month(month)
+        try:
+            amount_int = int(amount)
+        except (TypeError, ValueError):
+            raise ValidationError(f"예산 금액은 숫자여야 합니다: {amount}")
+        if amount_int <= 0:
+            raise ValidationError("예산 금액은 0보다 커야 합니다.")
+        from .models import Budget
+
+        budget = Budget(month=month, amount=amount_int)
+        self.repo.upsert(budget)
+        return budget
+
+    def get_budget(self, month: str):
+        return self.repo.get(month)
+
+
+class SummaryService:
+    def __init__(self, tx_service: TransactionService, budget_service: BudgetService):
+        self.tx_service = tx_service
+        self.budget_service = budget_service
+
+    def monthly_summary(self, month: str, top: int = 3) -> dict:
+        validate_month(month)
+        txs = [t for t in self.tx_service.repo.iter_all() if t.date.startswith(month)]
+
+        total_income = sum(t.amount for t in txs if t.type == "income")
+        total_expense = sum(t.amount for t in txs if t.type == "expense")
+        balance = total_income - total_expense
+
+        category_totals: dict = {}
+        for t in txs:
+            if t.type == "expense":
+                category_totals[t.category] = category_totals.get(t.category, 0) + t.amount
+        top_categories = sorted(category_totals.items(), key=lambda x: x[1], reverse=True)[:top]
+
+        budget = self.budget_service.get_budget(month)
+        usage_rate = None
+        over_budget = False
+        if budget and budget.amount:
+            usage_rate = round(total_expense / budget.amount * 100, 1)
+            over_budget = total_expense > budget.amount
+
+        return {
+            "has_data": bool(txs),
+            "total_income": total_income,
+            "total_expense": total_expense,
+            "balance": balance,
+            "top_categories": top_categories,
+            "budget": budget,
+            "usage_rate": usage_rate,
+            "over_budget": over_budget,
+        }
