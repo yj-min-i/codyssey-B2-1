@@ -198,11 +198,32 @@ def cmd_category_remove(args, services):
     print(f"[삭제 완료] category={args.name}")
 
 
+@track
+def cmd_update(args, services):
+    tx_service, *_ = services
+    fields = {}
+    if args.date is not None:
+        fields["date"] = args.date
+    if args.type is not None:
+        fields["type"] = args.type
+    if args.category is not None:
+        fields["category"] = args.category
+    if args.amount is not None:
+        fields["amount"] = args.amount
+    if args.memo is not None:
+        fields["memo"] = args.memo
+    if args.tags is not None:
+        fields["tags"] = [t.strip() for t in args.tags.split(",") if t.strip()]
+    tx = tx_service.update(args.tid, **fields)
+    print(f"[수정 완료] id={tx.id}")
+
+
 COMMAND_HANDLERS = {
     "add": cmd_add,
     "list": cmd_list,
     "search": cmd_search,
     "summary": cmd_summary,
+    "update": cmd_update,
 }
 
 
