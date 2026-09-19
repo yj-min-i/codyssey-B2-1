@@ -21,6 +21,18 @@ def _ensure_file(path: str) -> None:
 class TransactionRepository:
     def __init__(self, path: str):
         self.path = path
+        # next_id()가 매 호출마다 파일 전체를 다시 훑지 않도록 하는 캐시.
+        # 최초 1회만 전체를 스캔해 현재까지의 마지막 순번을 구하고,
+        # 이후에는 메모리에서 1씩 증가시킨다. (대량 import 시 O(n^2) 방지)
+        self._next_seq: Optional[int] = None
+
+    def next_id(self) -> str:
+        if self._next_seq is None:
+            first_id = next_transaction_id(t.id for t in self.iter_all())
+            self._next_seq = int(first_id.split("-")[-1])
+            return first_id
+        self._next_seq += 1
+        return f"TX-{self._next_seq:06d}"
 
     def iter_all(self) -> Iterator[Transaction]:
         """파일을 한 줄씩(제너레이터로) 읽어 Transaction 객체를 생성한다."""
@@ -44,9 +56,6 @@ class TransactionRepository:
     def rewrite_all(self, transactions: List[Transaction]) -> None:
         lines = (json.dumps(t.to_dict(), ensure_ascii=False) for t in transactions)
         atomic_write_lines(self.path, lines)
-
-    def next_id(self) -> str:
-        return next_transaction_id(t.id for t in self.iter_all())
 
 
 class CategoryRepository:
