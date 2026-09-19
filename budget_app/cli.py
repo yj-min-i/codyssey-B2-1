@@ -126,7 +126,25 @@ def cmd_list(args, services):
         print(format_transaction(tx))
 
 
-COMMAND_HANDLERS = {"add": cmd_add, "list": cmd_list}
+@track
+def cmd_search(args, services):
+    tx_service, *_ = services
+    txs = tx_service.search(
+        date_from=args.date_from,
+        date_to=args.date_to,
+        category=args.category,
+        type_=args.type,
+        q=args.q,
+        tag=args.tag,
+    )
+    if not txs:
+        print("데이터 없음")
+        return
+    for tx in txs:
+        print(format_transaction(tx))
+
+
+COMMAND_HANDLERS = {"add": cmd_add, "list": cmd_list, "search": cmd_search}
 
 
 def main() -> int:
