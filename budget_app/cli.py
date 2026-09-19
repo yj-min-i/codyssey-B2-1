@@ -144,7 +144,33 @@ def cmd_search(args, services):
         print(format_transaction(tx))
 
 
-COMMAND_HANDLERS = {"add": cmd_add, "list": cmd_list, "search": cmd_search}
+@track
+def cmd_summary(args, services):
+    _, _, _, summary_service = services
+    result = summary_service.monthly_summary(args.month, top=args.top)
+    if not result["has_data"]:
+        print("데이터 없음")
+        return
+    print(f"총 수입: {result['total_income']}원")
+    print(f"총 지출: {result['total_expense']}원")
+    print(f"잔액: {result['balance']}원")
+    if result["budget"]:
+        print(f"예산: {result['budget'].amount}원 (사용률 {result['usage_rate']}%)")
+        if result["over_budget"]:
+            print("[경고] 이번 달 예산을 초과했습니다!")
+    print(f"\n지출 TOP {args.top}")
+    if not result["top_categories"]:
+        print("(지출 내역 없음)")
+    for i, (cat, amt) in enumerate(result["top_categories"], start=1):
+        print(f"{i}) {cat} {amt}원")
+
+
+COMMAND_HANDLERS = {
+    "add": cmd_add,
+    "list": cmd_list,
+    "search": cmd_search,
+    "summary": cmd_summary,
+}
 
 
 def main() -> int:
