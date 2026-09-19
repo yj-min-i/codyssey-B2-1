@@ -10,6 +10,7 @@ from .decorators import track
 from .models import Transaction
 from .services import BudgetService, CategoryService, SummaryService, TransactionService
 from .storage import BudgetRepository, CategoryRepository, TransactionRepository
+from .utils import validate_date, validate_month
 
 DEFAULT_DATA_DIR = "./data"
 
@@ -254,6 +255,34 @@ def cmd_import(args, services):
     print(f"[완료] imported={imported}, skipped={skipped}")
 
 
+@track
+def cmd_export(args, services):
+    tx_service, *_ = services
+    if not args.month and not (args.date_from and args.date_to):
+        raise ValidationError(
+            "export는 --month 또는 --from/--to 조건이 필요합니다.",
+            hint="예: export --out out.csv --month 2024-01",
+        )
+
+    if args.month:
+        validate_month(args.month)
+        date_from, date_to = f"{args.month}-01", f"{args.month}-31"
+    else:
+        validate_date(args.date_from)
+        validate_date(args.date_to)
+        date_from, date_to = args.date_from, args.date_to
+
+    txs = tx_service.search(date_from=date_from, date_to=date_to)
+    with open(args.csv_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["date", "type", "category", "amount", "memo", "tags"])
+        for tx in txs:
+            writer.writerow(
+                [tx.date, tx.type, tx.category, tx.amount, tx.memo, ",".join(tx.tags)]
+            )
+    print(f"[완료] {args.csv_path} ({len(txs)} records)")
+
+
 COMMAND_HANDLERS = {
     "add": cmd_add,
     "list": cmd_list,
@@ -262,6 +291,7 @@ COMMAND_HANDLERS = {
     "update": cmd_update,
     "delete": cmd_delete,
     "import": cmd_import,
+    "export": cmd_export,
 }
 
 
