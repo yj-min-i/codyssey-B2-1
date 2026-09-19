@@ -1,11 +1,12 @@
 """CLI 계층: 명령행 인자를 파싱하고 서비스 계층을 호출한다."""
 import argparse
+import csv
 import logging
 import os
 import sys
 
+from .exceptions import AppError, ValidationError
 from .decorators import track
-from .exceptions import AppError
 from .models import Transaction
 from .services import BudgetService, CategoryService, SummaryService, TransactionService
 from .storage import BudgetRepository, CategoryRepository, TransactionRepository
@@ -225,6 +226,34 @@ def cmd_delete(args, services):
     print(f"[삭제 완료] id={args.tid}")
 
 
+@track
+def cmd_import(args, services):
+    tx_service, *_ = services
+    if not os.path.exists(args.csv_path):
+        raise ValidationError(f"파일을 찾을 수 없습니다: {args.csv_path}")
+
+    imported = 0
+    skipped = 0
+    with open(args.csv_path, "r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                tags_raw = row.get("tags", "") or ""
+                tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
+                tx_service.add(
+                    type_=(row.get("type") or "").strip(),
+                    date=(row.get("date") or "").strip(),
+                    amount=(row.get("amount") or "").strip(),
+                    category=(row.get("category") or "").strip(),
+                    memo=(row.get("memo") or "").strip(),
+                    tags=tags,
+                )
+                imported += 1
+            except (AppError, KeyError):
+                skipped += 1
+    print(f"[완료] imported={imported}, skipped={skipped}")
+
+
 COMMAND_HANDLERS = {
     "add": cmd_add,
     "list": cmd_list,
@@ -232,6 +261,7 @@ COMMAND_HANDLERS = {
     "summary": cmd_summary,
     "update": cmd_update,
     "delete": cmd_delete,
+    "import": cmd_import,
 }
 
 
