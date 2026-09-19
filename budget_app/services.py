@@ -4,9 +4,11 @@ CLI 계층은 이 서비스들만 호출하고, 서비스는 저장소(storage.p
 """
 from typing import List, Optional, Set, Union
 
+from typing import List, Optional, Set, Union
+
 from .exceptions import NotFoundError, ValidationError
-from .models import Category
-from .storage import CategoryRepository
+from .models import Category, Transaction
+from .storage import CategoryRepository, TransactionRepository
 from .utils import validate_date, validate_month
 
 VALID_TYPES = ("income", "expense")
@@ -167,6 +169,22 @@ class TransactionService:
 
     def used_categories(self) -> Set[str]:
         return {tx.category for tx in self.repo.iter_all()}
+
+    def reassign_category(self, old_category: str, new_category: str) -> int:
+        """old_category를 쓰는 모든 거래를 new_category로 일괄 이관한다.
+
+        카테고리를 삭제하기 전, 그 카테고리를 사용 중인 거래를 다른 카테고리로
+        옮기기 위해 사용한다. 이관된 거래 건수를 반환한다.
+        """
+        all_tx = list(self.repo.iter_all())
+        moved = 0
+        for tx in all_tx:
+            if tx.category == old_category:
+                tx.category = new_category
+                moved += 1
+        if moved:
+            self.repo.rewrite_all(all_tx)
+        return moved
 
 class BudgetService:
     def __init__(self, repo):
