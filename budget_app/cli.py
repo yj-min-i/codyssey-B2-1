@@ -109,7 +109,7 @@ def format_transaction(tx: Transaction) -> str:
 
 
 @track
-def cmd_add(args, services):
+def cmd_add(args: argparse.Namespace, services: Services) -> None:
     tx_service, *_ = services
     date = input("날짜(YYYY-MM-DD): ").strip()
     type_ = input("타입(income/expense): ").strip()
@@ -125,7 +125,7 @@ def cmd_add(args, services):
 
 
 @track
-def cmd_list(args, services):
+def cmd_list(args: argparse.Namespace, services: Services) -> None:
     tx_service, *_ = services
     txs = tx_service.list_recent(limit=args.limit)
     if not txs:
@@ -136,7 +136,7 @@ def cmd_list(args, services):
 
 
 @track
-def cmd_search(args, services):
+def cmd_search(args: argparse.Namespace, services: Services) -> None:
     tx_service, *_ = services
     txs = tx_service.search(
         date_from=args.date_from,
@@ -154,7 +154,7 @@ def cmd_search(args, services):
 
 
 @track
-def cmd_summary(args, services):
+def cmd_summary(args: argparse.Namespace, services: Services) -> None:
     _, _, _, summary_service = services
     result = summary_service.monthly_summary(args.month, top=args.top)
     if not result["has_data"]:
@@ -175,14 +175,14 @@ def cmd_summary(args, services):
 
 
 @track
-def cmd_budget_set(args, services):
+def cmd_budget_set(args: argparse.Namespace, services: Services) -> None:
     _, _, budget_service, _ = services
     budget = budget_service.set_budget(args.month, args.amount)
     print(f"[저장 완료] {budget.month} 예산 {budget.amount}원")
 
 
 @track
-def cmd_category_add(args, services):
+def cmd_category_add(args: argparse.Namespace, services: Services) -> None:
     _, category_service, *_ = services
     name = input("카테고리명: ").strip()
     category = category_service.add(name)
@@ -190,7 +190,7 @@ def cmd_category_add(args, services):
 
 
 @track
-def cmd_category_list(args, services):
+def cmd_category_list(args: argparse.Namespace, services: Services) -> None:
     _, category_service, *_ = services
     names = category_service.list_names()
     if not names:
@@ -208,7 +208,7 @@ def cmd_category_remove(args, services):
 
 
 @track
-def cmd_update(args, services):
+def cmd_update(args: argparse.Namespace, services: Services) -> None:
     tx_service, *_ = services
     fields = {}
     if args.date is not None:
@@ -228,14 +228,14 @@ def cmd_update(args, services):
 
 
 @track
-def cmd_delete(args, services):
+def cmd_delete(args: argparse.Namespace, services: Services) -> None:
     tx_service, *_ = services
     tx_service.delete(args.tid)
     print(f"[삭제 완료] id={args.tid}")
 
 
 @track
-def cmd_import(args, services):
+def cmd_export(args: argparse.Namespace, services: Services) -> None:
     tx_service, *_ = services
     if not os.path.exists(args.csv_path):
         raise ValidationError(f"파일을 찾을 수 없습니다: {args.csv_path}")
