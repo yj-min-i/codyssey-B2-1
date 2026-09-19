@@ -165,6 +165,13 @@ def cmd_summary(args, services):
         print(f"{i}) {cat} {amt}원")
 
 
+@track
+def cmd_budget_set(args, services):
+    _, _, budget_service, _ = services
+    budget = budget_service.set_budget(args.month, args.amount)
+    print(f"[저장 완료] {budget.month} 예산 {budget.amount}원")
+
+
 COMMAND_HANDLERS = {
     "add": cmd_add,
     "list": cmd_list,
@@ -189,6 +196,9 @@ def main() -> int:
         if e.hint:
             print(f"[힌트] {e.hint}", file=sys.stderr)
         return 1
+
+    if args.command == "budget" and args.budget_command == "set":
+        return cmd_budget_set(args, services)
 
     if args.command in COMMAND_HANDLERS:
         return COMMAND_HANDLERS[args.command](args, services)
