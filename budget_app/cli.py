@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 
+from .decorators import track
 from .exceptions import AppError
 from .models import Transaction
 from .services import BudgetService, CategoryService, SummaryService, TransactionService
@@ -98,7 +99,23 @@ def format_transaction(tx: Transaction) -> str:
     return " | ".join(parts)
 
 
-COMMAND_HANDLERS = {}
+@track
+def cmd_add(args, services):
+    tx_service, *_ = services
+    date = input("날짜(YYYY-MM-DD): ").strip()
+    type_ = input("타입(income/expense): ").strip()
+    category = input("카테고리: ").strip()
+    amount = input("금액(양수): ").strip()
+    memo = input("메모(선택): ").strip()
+    tags_raw = input("태그(쉼표로 구분, 없으면 엔터): ").strip()
+    tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+    tx = tx_service.add(
+        type_=type_, date=date, amount=amount, category=category, memo=memo, tags=tags
+    )
+    print(f"[저장 완료] id={tx.id}")
+
+
+COMMAND_HANDLERS = {"add": cmd_add}
 
 
 def main() -> int:
