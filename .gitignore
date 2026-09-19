@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+data/
+app.log
+export.csv
+*.egg-info/
