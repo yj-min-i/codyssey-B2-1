@@ -3,10 +3,13 @@ import argparse
 import csv
 import logging
 import os
+import shutil
 import sys
+from datetime import datetime
+from typing import Tuple
 
+from .decorators import logger, track
 from .exceptions import AppError, ValidationError
-from .decorators import track
 from .models import Transaction
 from .services import BudgetService, CategoryService, SummaryService, TransactionService
 from .storage import BudgetRepository, CategoryRepository, TransactionRepository
@@ -14,8 +17,12 @@ from .utils import validate_date, validate_month
 
 DEFAULT_DATA_DIR = "./data"
 
+# CLI 계층에서 서비스 4종을 하나로 묶어 주고받는 타입. build_services()가 만들고
+# 모든 cmd_* 핸들러가 이 튜플을 그대로 받아 필요한 서비스만 꺼내 쓴다.
+Services = Tuple[TransactionService, CategoryService, BudgetService, SummaryService]
 
-def build_services(data_dir: str):
+
+def build_services(data_dir: str) -> Services:
     os.makedirs(data_dir, exist_ok=True)
     tx_repo = TransactionRepository(os.path.join(data_dir, "transactions.jsonl"))
     cat_repo = CategoryRepository(os.path.join(data_dir, "categories.jsonl"))
