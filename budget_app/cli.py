@@ -115,7 +115,18 @@ def cmd_add(args, services):
     print(f"[저장 완료] id={tx.id}")
 
 
-COMMAND_HANDLERS = {"add": cmd_add}
+@track
+def cmd_list(args, services):
+    tx_service, *_ = services
+    txs = tx_service.list_recent(limit=args.limit)
+    if not txs:
+        print("데이터 없음")
+        return
+    for tx in txs:
+        print(format_transaction(tx))
+
+
+COMMAND_HANDLERS = {"add": cmd_add, "list": cmd_list}
 
 
 def main() -> int:
