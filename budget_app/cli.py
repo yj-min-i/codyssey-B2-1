@@ -218,12 +218,20 @@ def cmd_update(args, services):
     print(f"[수정 완료] id={tx.id}")
 
 
+@track
+def cmd_delete(args, services):
+    tx_service, *_ = services
+    tx_service.delete(args.tid)
+    print(f"[삭제 완료] id={args.tid}")
+
+
 COMMAND_HANDLERS = {
     "add": cmd_add,
     "list": cmd_list,
     "search": cmd_search,
     "summary": cmd_summary,
     "update": cmd_update,
+    "delete": cmd_delete,
 }
 
 
