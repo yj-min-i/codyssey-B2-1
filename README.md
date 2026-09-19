@@ -1,4 +1,4 @@
-# 나만의 용돈 기입장
+# 나만의 용돈 기입장 (codyssey-B2-1)
 
 Python 표준 라이브러리만으로 만든 파일 기반 콘솔 가계부입니다.
 거래 추가/조회/검색/수정/삭제, 월별 요약, 카테고리·예산 관리, CSV 가져오기/내보내기를 지원합니다.
@@ -7,27 +7,27 @@ Python 표준 라이브러리만으로 만든 파일 기반 콘솔 가계부입�
 
 Python 3.10 이상이 필요합니다 (표준 라이브러리만 사용하므로 별도 설치 불필요).
 
-\`\`\`bash
+```bash
 python -m budget_app --help
 python -m budget_app <command> --help   # 각 명령의 상세 옵션 확인
-\`\`\`
+```
 
 예:
-\`\`\`bash
+```bash
 python -m budget_app add
 python -m budget_app list --limit 10
 python -m budget_app summary --month 2024-01
-\`\`\`
+```
 
-데이터 저장 폴더는 기본값 \`./data\`이며, \`--data-dir\` 옵션으로 변경할 수 있습니다.
+데이터 저장 폴더는 기본값 `./data`이며, `--data-dir` 옵션으로 변경할 수 있습니다.
 
-\`\`\`bash
+```bash
 python -m budget_app --data-dir ./mydata add
-\`\`\`
+```
 
 ## 프로젝트 구조
 
-\`\`\`
+```
 budget_app/
   __init__.py
   __main__.py     # python -m budget_app 진입점
@@ -43,7 +43,7 @@ data/                      # 실행 시 자동 생성 (저장 파일)
   categories.jsonl
   budgets.jsonl
 app.log                     # 실행 로그 (자동 생성)
-\`\`\`
+```
 
 ## 아키텍처
 
@@ -59,16 +59,16 @@ app.log                     # 실행 로그 (자동 생성)
 ## 저장 방식
 
 - 포맷: **JSONL** (한 줄에 JSON 객체 하나)
-- 위치: \`./data\` (\`--data-dir\`로 변경 가능), 파일 3개로 분리 저장
-  - \`transactions.jsonl\` — 거래 내역
-  - \`categories.jsonl\` — 카테고리 목록
-  - \`budgets.jsonl\` — 월별 예산
-- 최초 실행 시 \`data/\` 폴더와 파일이 자동 생성되고, 카테고리가 비어있으면 기본 카테고리(\`food\`, \`transport\`, \`rent\`, \`etc\`)가 자동으로 만들어집니다.
-- \`update\`/\`delete\`는 전체 데이터를 임시 파일에 다시 쓴 뒤 \`os.replace\`로 원자적으로 교체합니다. 저장 도중 프로그램이 중단되어도 원본 파일이 손상되지 않습니다.
+- 위치: `./data` (`--data-dir`로 변경 가능), 파일 3개로 분리 저장
+  - `transactions.jsonl` — 거래 내역
+  - `categories.jsonl` — 카테고리 목록
+  - `budgets.jsonl` — 월별 예산
+- 최초 실행 시 `data/` 폴더와 파일이 자동 생성되고, 카테고리가 비어있으면 기본 카테고리(`food`, `transport`, `rent`, `etc`)가 자동으로 만들어집니다.
+- `update`/`delete`는 전체 데이터를 임시 파일에 다시 쓴 뒤 `os.replace`로 원자적으로 교체합니다. 저장 도중 프로그램이 중단되어도 원본 파일이 손상되지 않습니다.
 
 ## 주요 명령 예시
 
-\`\`\`bash
+```bash
 # 거래 추가 (대화형)
 $ python -m budget_app add
 날짜(YYYY-MM-DD): 2024-01-15
@@ -113,7 +113,7 @@ $ python -m budget_app delete --id TX-000001
 # CSV 내보내기 / 가져오기
 $ python -m budget_app export --out export.csv --month 2024-01
 $ python -m budget_app import --from import.csv
-\`\`\`
+```
 
 ## import / export CSV 스키마
 
@@ -126,16 +126,15 @@ $ python -m budget_app import --from import.csv
 | memo | N | 문자열 |
 | tags | N | 쉼표(,) 구분 문자열 |
 
-인코딩은 UTF-8, 첫 줄은 헤더입니다. \`export\`는 \`--month YYYY-MM\` 또는 \`--from/--to\` 중 하나 이상의 조건이 필수입니다. \`import\`는 형식에 맞지 않거나 등록되지 않은 카테고리인 행은 건너뛰고, 처리 결과를 \`imported=N, skipped=M\`으로 출력합니다.
+인코딩은 UTF-8, 첫 줄은 헤더입니다. `export`는 `--month YYYY-MM` 또는 `--from/--to` 중 하나 이상의 조건이 필수입니다. `import`는 형식에 맞지 않거나 등록되지 않은 카테고리인 행은 건너뛰고, 처리 결과를 `imported=N, skipped=M`으로 출력합니다.
 
 ## 오류 처리
 
-- 잘못된 입력(날짜 형식, 0 이하 금액, 존재하지 않는 카테고리/id 등)은 파이썬 스택트레이스 대신 \`[오류] 원인\` + \`[힌트] 해결 방법\` 형태로 출력합니다.
+- 잘못된 입력(날짜 형식, 0 이하 금액, 존재하지 않는 카테고리/id 등)은 파이썬 스택트레이스 대신 `[오류] 원인` + `[힌트] 해결 방법` 형태로 출력합니다.
 - 정상 종료는 exit code 0, 오류 종료는 1입니다.
-- 모든 명령의 실행 로그(시작/완료/오류, 소요 시간)는 \`app.log\`에 기록됩니다.
+- 모든 명령의 실행 로그(시작/완료/오류, 소요 시간)는 `app.log`에 기록됩니다.
 
 ## 개발 환경 / 제약
 
 - Python 3.10 이상, 표준 라이브러리만 사용 (외부 패키지 설치 불필요)
-- 옵션 표기는 \`--\`(예: \`--limit\`, \`--from\`, \`--month\`)로 통일
-\`\`\`
+- 옵션 표기는 `--`(예: `--limit`, `--from`, `--month`)로 통일
