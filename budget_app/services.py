@@ -7,8 +7,8 @@ from typing import List, Optional, Set, Union
 from typing import List, Optional, Set, Union
 
 from .exceptions import NotFoundError, ValidationError
-from .models import Category, Transaction
-from .storage import CategoryRepository, TransactionRepository
+from .models import Budget, Category, RecurringRule, Transaction
+from .storage import BudgetRepository, CategoryRepository, RecurringRepository, TransactionRepository
 from .utils import validate_date, validate_month
 
 VALID_TYPES = ("income", "expense")
@@ -244,3 +244,79 @@ class SummaryService:
             "usage_rate": usage_rate,
             "over_budget": over_budget,
         }
+
+class RecurringService:
+    """월급/월세처럼 반복되는 거래 규칙을 관리하고, 특정 월에 실제 거래로 생성한다."""
+
+    def __init__(
+        self,
+        repo: RecurringRepository,
+        category_service: CategoryService,
+        tx_service: TransactionService,
+    ):
+        self.repo = repo
+        self.category_service = category_service
+        self.tx_service = tx_service
+
+    def add(
+        self,
+        type_: str,
+        category: str,
+        amount: Union[int, str],
+        day: Union[int, str],
+        memo: str = "",
+        tags: Optional[List[str]] = None,
+    ) -> RecurringRule:
+        if type_ not in VALID_TYPES:
+            raise ValidationError(
+                f"허용되지 않은 타입입니다: {type_}",
+                hint="income 또는 expense 중 하나를 입력하세요.",
+            )
+        try:
+            amount_int = int(amount)
+        except (TypeError, ValueError):
+            raise ValidationError(f"금액은 숫자여야 합니다: {amount}")
+        if amount_int <= 0:
+            raise ValidationError(f"금액은 0보다 큰 양수여야 합니다: {amount_int}")
+        try:
+            day_int = int(day)
+        except (TypeError, ValueError):
+            raise ValidationError(f"생성일은 숫자여야 합니다: {day}")
+        if not (1 <= day_int <= 28):
+            raise ValidationError(
+                f"생성일은 1~28 사이여야 합니다: {day_int}",
+                hint="모든 달에 안전하게 존재하는 날짜만 허용합니다(29~31일 제외).",
+            )
+        if not self.category_service.exists(category):
+            raise ValidationError(
+                f"등록되지 않은 카테고리입니다: {category}",
+                hint="category add 로 먼저 등록하세요.",
+            )
+        rule = RecurringRule(
+            type=type_, category=category, amount=amount_int, day=day_int,
+            memo=memo, tags=tags or [],
+        )
+        self.repo.append(rule)
+        return rule
+
+    def list_all(self) -> List[RecurringRule]:
+        return list(self.repo.iter_all())
+
+    def apply_month(self, month: str) -> int:
+        """month(YYYY-MM)에 아직 적용 안 된 규칙들로 거래를 생성한다. 생성 건수를 반환한다."""
+        validate_month(month)
+        rules = list(self.repo.iter_all())
+        created = 0
+        for rule in rules:
+            if month in rule.applied_months:
+                continue  # 이미 이 달에 생성한 규칙은 건너뛴다 (중복 생성 방지)
+            date = f"{month}-{rule.day:02d}"
+            self.tx_service.add(
+                type_=rule.type, date=date, amount=rule.amount,
+                category=rule.category, memo=rule.memo, tags=list(rule.tags),
+            )
+            rule.applied_months.append(month)
+            created += 1
+        if created:
+            self.repo.rewrite_all(rules)
+        return created
