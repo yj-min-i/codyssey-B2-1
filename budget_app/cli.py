@@ -74,6 +74,11 @@ def build_parser() -> argparse.ArgumentParser:
     category_sub.add_parser("list", help="카테고리 목록 조회")
     p_category_remove = category_sub.add_parser("remove", help="카테고리 삭제")
     p_category_remove.add_argument("--name", required=True, help="삭제할 카테고리 이름")
+    p_category_remove.add_argument(
+        "--replace-with",
+        dest="replace_with",
+        help="사용 중인 카테고리를 삭제할 때, 해당 거래들을 옮길 대체 카테고리",
+    )
 
     p_update = sub.add_parser(
         "update", help="거래 수정 (--id 기반, 옵션으로 필드 지정)"
@@ -201,8 +206,21 @@ def cmd_category_list(args: argparse.Namespace, services: Services) -> None:
 
 
 @track
-def cmd_category_remove(args, services):
+def cmd_category_remove(args: argparse.Namespace, services: Services) -> None:
     tx_service, category_service, *_ = services
+    used = tx_service.used_categories()
+    if args.name in used:
+        if not args.replace_with:
+            raise ValidationError(
+                f"'{args.name}' 카테고리를 사용 중인 거래가 있어 삭제할 수 없습니다.",
+                hint="update로 거래를 하나씩 옮기거나, --replace-with <대체카테고리>로 한 번에 옮기세요.",
+            )
+        if args.replace_with == args.name:
+            raise ValidationError("대체 카테고리는 삭제할 카테고리와 달라야 합니다.")
+        if not category_service.exists(args.replace_with):
+            raise ValidationError(f"대체 카테고리가 존재하지 않습니다: {args.replace_with}")
+        moved = tx_service.reassign_category(args.name, args.replace_with)
+        print(f"[안내] {moved}건의 거래를 '{args.replace_with}' 카테고리로 이관했습니다.")
     category_service.remove(args.name, tx_service.used_categories())
     print(f"[삭제 완료] category={args.name}")
 
