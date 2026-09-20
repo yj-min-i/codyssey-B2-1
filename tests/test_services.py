@@ -14,10 +14,16 @@ from budget_app.exceptions import NotFoundError, ValidationError
 from budget_app.services import (
     BudgetService,
     CategoryService,
+    RecurringService,
     SummaryService,
     TransactionService,
 )
-from budget_app.storage import BudgetRepository, CategoryRepository, TransactionRepository
+from budget_app.storage import (
+    BudgetRepository,
+    CategoryRepository,
+    RecurringRepository,
+    TransactionRepository,
+)
 
 
 class ServiceTestCase(unittest.TestCase):
@@ -30,6 +36,7 @@ class ServiceTestCase(unittest.TestCase):
         self.cat_repo = CategoryRepository(os.path.join(data_dir, "categories.jsonl"))
         self.tx_repo = TransactionRepository(os.path.join(data_dir, "transactions.jsonl"))
         self.budget_repo = BudgetRepository(os.path.join(data_dir, "budgets.jsonl"))
+        self.recurring_repo = RecurringRepository(os.path.join(data_dir, "recurring.jsonl"))
 
         self.category_service = CategoryService(self.cat_repo)
         self.category_service.ensure_default_categories()  # food/transport/rent/etc 생성
@@ -37,6 +44,9 @@ class ServiceTestCase(unittest.TestCase):
         self.tx_service = TransactionService(self.tx_repo, self.category_service)
         self.budget_service = BudgetService(self.budget_repo)
         self.summary_service = SummaryService(self.tx_service, self.budget_service)
+        self.recurring_service = RecurringService(
+            self.recurring_repo, self.category_service, self.tx_service
+        )
 
     def tearDown(self):
         self.tmpdir.cleanup()
@@ -173,6 +183,54 @@ class BudgetAndSummaryServiceTests(ServiceTestCase):
     def test_summary_no_data_for_empty_month(self):
         result = self.summary_service.monthly_summary("2099-12")
         self.assertFalse(result["has_data"])
+
+
+class RecurringServiceTests(ServiceTestCase):
+    def test_add_rejects_invalid_day(self):
+        with self.assertRaises(ValidationError):
+            self.recurring_service.add(
+                type_="expense", category="rent", amount=700000, day=29
+            )
+
+    def test_add_rejects_unknown_category(self):
+        with self.assertRaises(ValidationError):
+            self.recurring_service.add(
+                type_="expense", category="없는카테고리", amount=1000, day=10
+            )
+
+    def test_apply_month_creates_transaction_for_each_rule(self):
+        self.recurring_service.add(
+            type_="income", category="etc", amount=3000000, day=25, memo="월급"
+        )
+        self.recurring_service.add(
+            type_="expense", category="rent", amount=700000, day=5, memo="월세"
+        )
+
+        created = self.recurring_service.apply_month("2024-01")
+
+        self.assertEqual(created, 2)
+        txs = list(self.tx_repo.iter_all())
+        self.assertEqual(len(txs), 2)
+        dates = {tx.date for tx in txs}
+        self.assertEqual(dates, {"2024-01-25", "2024-01-05"})
+
+    def test_apply_month_is_idempotent_for_same_month(self):
+        self.recurring_service.add(type_="expense", category="rent", amount=700000, day=5)
+
+        first = self.recurring_service.apply_month("2024-01")
+        second = self.recurring_service.apply_month("2024-01")  # 같은 달 재적용
+
+        self.assertEqual(first, 1)
+        self.assertEqual(second, 0)  # 중복 생성되지 않아야 한다
+        self.assertEqual(len(list(self.tx_repo.iter_all())), 1)
+
+    def test_apply_different_months_both_create_transactions(self):
+        self.recurring_service.add(type_="expense", category="rent", amount=700000, day=5)
+
+        self.recurring_service.apply_month("2024-01")
+        self.recurring_service.apply_month("2024-02")
+
+        self.assertEqual(len(list(self.tx_repo.iter_all())), 2)
 
 
 if __name__ == "__main__":
