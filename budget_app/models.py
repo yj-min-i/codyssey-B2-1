@@ -62,3 +62,32 @@ class Budget:
     @classmethod
     def from_dict(cls, data: dict) -> "Budget":
         return cls(month=data["month"], amount=int(data["amount"]))
+
+@dataclass
+class RecurringRule:
+    """월급/월세처럼 매달 반복되는 거래를 만들어내는 규칙 1건."""
+
+    type: str  # "income" 또는 "expense"
+    category: str
+    amount: int
+    day: int  # 매달 며칠에 생성할지 (1~28)
+    memo: str = ""
+    tags: List[str] = field(default_factory=list)
+    # apply(월)를 실행할 때마다 이 규칙으로 이미 거래를 생성한 월(YYYY-MM)을 기록해
+    # 같은 월에 중복 생성되지 않도록 막는다.
+    applied_months: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "RecurringRule":
+        return cls(
+            type=data["type"],
+            category=data["category"],
+            amount=int(data["amount"]),
+            day=int(data["day"]),
+            memo=data.get("memo", ""),
+            tags=list(data.get("tags", [])),
+            applied_months=list(data.get("applied_months", [])),
+        )
