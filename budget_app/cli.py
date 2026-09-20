@@ -235,7 +235,7 @@ def cmd_delete(args: argparse.Namespace, services: Services) -> None:
 
 
 @track
-def cmd_export(args: argparse.Namespace, services: Services) -> None:
+def cmd_import(args: argparse.Namespace, services: Services) -> None:
     tx_service, *_ = services
     if not os.path.exists(args.csv_path):
         raise ValidationError(f"파일을 찾을 수 없습니다: {args.csv_path}")
@@ -263,7 +263,7 @@ def cmd_export(args: argparse.Namespace, services: Services) -> None:
 
 
 @track
-def cmd_export(args, services):
+def cmd_export(args: argparse.Namespace, services: Services) -> None:
     tx_service, *_ = services
     if not args.month and not (args.date_from and args.date_to):
         raise ValidationError(
