@@ -103,6 +103,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("--from", dest="date_from", help="YYYY-MM-DD")
     p_export.add_argument("--to", dest="date_to", help="YYYY-MM-DD")
 
+    sub.add_parser("backup", help="데이터 파일 3종을 타임스탬프 폴더에 백업")
+
     return parser
 
 
@@ -317,6 +319,26 @@ def cmd_export(args: argparse.Namespace, services: Services) -> None:
     print(f"[완료] {args.csv_path} ({len(txs)} records)")
 
 
+@track
+def cmd_backup(args: argparse.Namespace, services: Services) -> None:
+    data_dir = args.data_dir
+    if not os.path.isdir(data_dir):
+        raise ValidationError(f"데이터 폴더가 없습니다: {data_dir}")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_dir = os.path.join(data_dir, "backup", timestamp)
+    os.makedirs(backup_dir, exist_ok=True)
+
+    copied = []
+    for fname in ("transactions.jsonl", "categories.jsonl", "budgets.jsonl"):
+        src = os.path.join(data_dir, fname)
+        if os.path.exists(src):
+            shutil.copy2(src, os.path.join(backup_dir, fname))
+            copied.append(fname)
+
+    print(f"[완료] 백업 생성: {backup_dir} ({len(copied)}개 파일)")
+
+
 COMMAND_HANDLERS = {
     "add": cmd_add,
     "list": cmd_list,
@@ -326,6 +348,7 @@ COMMAND_HANDLERS = {
     "delete": cmd_delete,
     "import": cmd_import,
     "export": cmd_export,
+    "backup": cmd_backup,
 }
 
 
