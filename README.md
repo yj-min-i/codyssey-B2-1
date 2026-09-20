@@ -64,6 +64,7 @@ data/                       # 실행 시 자동 생성 (저장 파일)
   transactions.jsonl
   categories.jsonl
   budgets.jsonl
+  recurring.jsonl
   backup/<timestamp>/        # backup 명령 실행 시 생성
 app.log                       # 실행 로그 (자동 생성)
 ```
@@ -374,6 +375,36 @@ python -m unittest discover -s tests -t .
 ## 타입 힌트
 
 모든 공개 함수/메서드에 매개변수·반환 타입을 명시했습니다. 특히 CLI 계층(`cli.py`)의 모든 `cmd_*` 핸들러는 `(args: argparse.Namespace, services: Services) -> None` 형태로 통일했습니다 — 여기서 `Services`는 `Tuple[TransactionService, CategoryService, BudgetService, SummaryService]`의 타입 별칭으로, 서비스 4종을 주고받는 계약을 한 곳에서 정의합니다.
+
+## 반복 내역 (보너스)
+
+월급/월세처럼 매달 반복되는 거래를 규칙으로 등록해두면, 원하는 달에 한 번에 생성할 수 있습니다.
+
+```bash
+$ python -m budget_app recurring add
+타입(income/expense): income
+카테고리: etc
+금액(양수): 3000000
+매달 생성일(1~28): 25
+메모(선택): 월급
+태그(쉼표로 구분, 없으면 엔터): salary
+[저장 완료] 매달 25일 etc 3000000원(income)
+
+$ python -m budget_app recurring list
+income | etc | 3000000원 | 매달 25일 | 월급
+
+$ python -m budget_app recurring apply --month 2024-01
+[완료] 2024-01에 반복 거래 2건을 생성했습니다.
+
+$ python -m budget_app recurring apply --month 2024-01
+[완료] 2024-01에 반복 거래 0건을 생성했습니다.
+```
+
+**중복 생성 방지**: 각 규칙은 이미 거래를 생성한 월 목록(`applied_months`)을 자기 자신에 기록합니다. `apply --month`를 같은 달에 여러 번 실행해도 이미 생성한 규칙은 건너뛰므로 거래가 중복 생성되지 않습니다.
+
+**생성일이 1~28로 제한된 이유**: 2월처럼 28일까지만 있는 달에도 항상 안전하게 존재하는 날짜만 허용해서, 29~31일에 걸린 규칙이 특정 달에 못 만들어지는 예외 상황 자체를 막았습니다.
+
+**목록 출력 정렬**: `list`/`search`/`recurring apply`로 생성된 거래를 `list`로 볼 때, `id`/`date`/`type`/`category`/`amount` 컬럼이 고정폭으로 정렬되어 출력됩니다(외부 라이브러리 없이 `str.ljust`/`str.rjust`만 사용).
 
 ## 개발 환경 / 제약
 
