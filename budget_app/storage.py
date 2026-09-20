@@ -8,7 +8,7 @@ import json
 import os
 from typing import Iterator, List, Optional
 
-from .models import Budget, Category, Transaction
+from .models import Budget, Category, RecurringRule, Transaction
 from .utils import atomic_write_lines, next_transaction_id
 
 
@@ -114,3 +114,29 @@ class BudgetRepository:
             if b.month == month:
                 return b
         return None
+
+class RecurringRepository:
+    def __init__(self, path: str):
+        self.path = path
+
+    def iter_all(self) -> Iterator[RecurringRule]:
+        _ensure_file(self.path)
+        with open(self.path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                yield RecurringRule.from_dict(data)
+
+    def append(self, rule: RecurringRule) -> None:
+        _ensure_file(self.path)
+        with open(self.path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rule.to_dict(), ensure_ascii=False) + "\n")
+
+    def rewrite_all(self, rules: List[RecurringRule]) -> None:
+        lines = (json.dumps(r.to_dict(), ensure_ascii=False) for r in rules)
+        atomic_write_lines(self.path, lines)
