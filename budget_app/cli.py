@@ -262,7 +262,8 @@ def cmd_import(args: argparse.Namespace, services: Services) -> None:
     skipped = 0
     with open(args.csv_path, "r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
-        for row in reader:
+        # row_num은 실제 CSV 파일 기준 줄 번호(1행=헤더)로, 로그에서 문제 행을 바로 찾게 해준다.
+        for row_num, row in enumerate(reader, start=2):
             try:
                 tags_raw = row.get("tags", "") or ""
                 tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
@@ -275,9 +276,17 @@ def cmd_import(args: argparse.Namespace, services: Services) -> None:
                     tags=tags,
                 )
                 imported += 1
-            except (AppError, KeyError):
+            except AppError as e:
                 skipped += 1
+                logger.warning("[import 건너뜀] %s %d행: %s", args.csv_path, row_num, e.message)
+            except KeyError as e:
+                skipped += 1
+                logger.warning(
+                    "[import 건너뜀] %s %d행: 필수 컬럼 누락(%s)", args.csv_path, row_num, e
+                )
     print(f"[완료] imported={imported}, skipped={skipped}")
+    if skipped:
+        print("[안내] 건너뛴 행의 상세 사유는 app.log에서 확인할 수 있습니다.")
 
 
 @track
