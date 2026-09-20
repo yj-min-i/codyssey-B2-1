@@ -11,8 +11,14 @@ from typing import Tuple
 from .decorators import logger, track
 from .exceptions import AppError, ValidationError
 from .models import Transaction
-from .services import BudgetService, CategoryService, SummaryService, TransactionService
-from .storage import BudgetRepository, CategoryRepository, TransactionRepository
+from .services import (
+    BudgetService,
+    CategoryService,
+    RecurringService,
+    SummaryService,
+    TransactionService,
+)
+from .storage import BudgetRepository, CategoryRepository, RecurringRepository, TransactionRepository
 from .utils import validate_date, validate_month
 
 DEFAULT_DATA_DIR = "./data"
@@ -34,6 +40,14 @@ def build_services(data_dir: str) -> Services:
     budget_service = BudgetService(budget_repo)
     summary_service = SummaryService(tx_service, budget_service)
     return tx_service, category_service, budget_service, summary_service
+
+
+def build_recurring_service(
+    data_dir: str, tx_service: TransactionService, category_service: CategoryService
+) -> RecurringService:
+    """반복 규칙은 기존 Services 튜플에 넣지 않고 필요한 명령에서만 따로 구성한다."""
+    repo = RecurringRepository(os.path.join(data_dir, "recurring.jsonl"))
+    return RecurringService(repo, category_service, tx_service)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -105,14 +119,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("backup", help="데이터 파일 3종을 타임스탬프 폴더에 백업")
 
+    p_recurring = sub.add_parser("recurring", help="반복 내역(월급/월세 등) 관리")
+    recurring_sub = p_recurring.add_subparsers(dest="recurring_command", required=True)
+    recurring_sub.add_parser("add", help="반복 규칙 추가 (대화형 입력)")
+    recurring_sub.add_parser("list", help="반복 규칙 목록 조회")
+    p_recurring_apply = recurring_sub.add_parser(
+        "apply", help="지정한 월에 반복 규칙을 적용해 거래를 생성"
+    )
+    p_recurring_apply.add_argument("--month", required=True, help="YYYY-MM")
+
     return parser
 
 
 def format_transaction(tx: Transaction) -> str:
-    parts = [tx.id, tx.date, tx.type, tx.category, str(tx.amount), tx.memo or ""]
+    """콘솔에서 컬럼이 맞춰 보이도록 각 필드를 고정폭으로 정렬한다(외부 라이브러리 없이 문자열 정렬만 사용)."""
+    parts = [
+        tx.id.ljust(10),
+        tx.date.ljust(10),
+        tx.type.ljust(7),
+        tx.category.ljust(10),
+        str(tx.amount).rjust(9),
+        tx.memo or "",
+    ]
+    line = " | ".join(parts)
     if tx.tags:
-        parts.append(",".join(tx.tags))
-    return " | ".join(parts)
+        line += " | " + ",".join(tx.tags)
+    return line
 
 
 @track
@@ -339,6 +371,43 @@ def cmd_backup(args: argparse.Namespace, services: Services) -> None:
     print(f"[완료] 백업 생성: {backup_dir} ({len(copied)}개 파일)")
 
 
+@track
+def cmd_recurring_add(args: argparse.Namespace, services: Services) -> None:
+    tx_service, category_service, *_ = services
+    recurring_service = build_recurring_service(args.data_dir, tx_service, category_service)
+    type_ = input("타입(income/expense): ").strip()
+    category = input("카테고리: ").strip()
+    amount = input("금액(양수): ").strip()
+    day = input("매달 생성일(1~28): ").strip()
+    memo = input("메모(선택): ").strip()
+    tags_raw = input("태그(쉼표로 구분, 없으면 엔터): ").strip()
+    tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+    rule = recurring_service.add(
+        type_=type_, category=category, amount=amount, day=day, memo=memo, tags=tags
+    )
+    print(f"[저장 완료] 매달 {rule.day}일 {rule.category} {rule.amount}원({rule.type})")
+
+
+@track
+def cmd_recurring_list(args: argparse.Namespace, services: Services) -> None:
+    tx_service, category_service, *_ = services
+    recurring_service = build_recurring_service(args.data_dir, tx_service, category_service)
+    rules = recurring_service.list_all()
+    if not rules:
+        print("데이터 없음")
+        return
+    for r in rules:
+        print(f"{r.type} | {r.category} | {r.amount}원 | 매달 {r.day}일 | {r.memo}")
+
+
+@track
+def cmd_recurring_apply(args: argparse.Namespace, services: Services) -> None:
+    tx_service, category_service, *_ = services
+    recurring_service = build_recurring_service(args.data_dir, tx_service, category_service)
+    created = recurring_service.apply_month(args.month)
+    print(f"[완료] {args.month}에 반복 거래 {created}건을 생성했습니다.")
+
+
 COMMAND_HANDLERS = {
     "add": cmd_add,
     "list": cmd_list,
@@ -379,6 +448,14 @@ def main() -> int:
             return cmd_category_list(args, services)
         if args.category_command == "remove":
             return cmd_category_remove(args, services)
+
+    if args.command == "recurring":
+        if args.recurring_command == "add":
+            return cmd_recurring_add(args, services)
+        if args.recurring_command == "list":
+            return cmd_recurring_list(args, services)
+        if args.recurring_command == "apply":
+            return cmd_recurring_apply(args, services)
 
     if args.command in COMMAND_HANDLERS:
         return COMMAND_HANDLERS[args.command](args, services)
