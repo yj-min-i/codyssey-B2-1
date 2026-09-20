@@ -1,4 +1,5 @@
 """날짜/월 검증, 원자적 파일 쓰기, id 생성 등 공용 헬퍼 함수."""
+import logging
 import os
 import re
 import tempfile
@@ -9,6 +10,8 @@ from .exceptions import ValidationError
 
 DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
+
+logger = logging.getLogger("budget_app")
 
 
 def validate_date(date_str: str) -> None:
@@ -52,7 +55,10 @@ def atomic_write_lines(path: str, lines: Iterable[str]) -> None:
                 if not line.endswith("\n"):
                     f.write("\n")
         os.replace(tmp_path, path)
-    except Exception:
+    except Exception as e:
+        # 임시 파일 쓰기/교체 중 실패해도 os.replace 이전이므로 원본 path는 그대로 남아있다.
+        # 실패 사실과 원인을 로그로 남기고, 남은 임시 파일은 정리한다.
+        logger.error("[저장 실패] %s 갱신 중 오류로 원본을 그대로 유지합니다: %s", path, e)
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
