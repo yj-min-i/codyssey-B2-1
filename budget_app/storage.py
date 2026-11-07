@@ -8,6 +8,7 @@ import json
 import os
 from typing import Iterator, List, Optional
 
+from .exceptions import AppError
 from .models import Budget, Category, RecurringRule, Transaction
 from .utils import atomic_write_lines, next_transaction_id
 
@@ -44,8 +45,11 @@ class TransactionRepository:
                     continue
                 try:
                     data = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+                except json.JSONDecodeError as e:
+                    raise AppError(
+                        f"저장 파일을 읽을 수 없습니다: {self.path}",
+                        hint="데이터 파일이 손상되었을 수 있습니다. 백업 파일을 확인하세요.",
+                    ) from e
                 yield Transaction.from_dict(data)
 
     def append(self, transaction: Transaction) -> None:
@@ -71,8 +75,11 @@ class CategoryRepository:
                     continue
                 try:
                     data = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+                except json.JSONDecodeError as e:
+                    raise AppError(
+                        f"저장 파일을 읽을 수 없습니다: {self.path}",
+                        hint="데이터 파일이 손상되었을 수 있습니다. 백업 파일을 확인하세요.",
+                    ) from e
                 yield Category.from_dict(data)
 
     def append(self, category: Category) -> None:
@@ -98,8 +105,11 @@ class BudgetRepository:
                     continue
                 try:
                     data = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+                except json.JSONDecodeError as e:
+                    raise AppError(
+                        f"저장 파일을 읽을 수 없습니다: {self.path}",
+                        hint="데이터 파일이 손상되었을 수 있습니다. 백업 파일을 확인하세요.",
+                    ) from e
                 yield Budget.from_dict(data)
 
     def upsert(self, budget: Budget) -> None:
@@ -128,8 +138,11 @@ class RecurringRepository:
                     continue
                 try:
                     data = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+                except json.JSONDecodeError as e:
+                    raise AppError(
+                        f"저장 파일을 읽을 수 없습니다: {self.path}",
+                        hint="데이터 파일이 손상되었을 수 있습니다. 백업 파일을 확인하세요.",
+                    ) from e
                 yield RecurringRule.from_dict(data)
 
     def append(self, rule: RecurringRule) -> None:

@@ -31,11 +31,21 @@ def validate_date(date_str: str) -> None:
 
 
 def validate_month(month_str: str) -> None:
-    """YYYY-MM 형식인지 검증한다."""
-    if not month_str or not MONTH_PATTERN.match(month_str):
+    """YYYY-MM 형식과 실제 존재하는 월인지 검증한다."""
+
+    if not month_str or not MONTH_PATTERN.fullmatch(month_str):
         raise ValidationError(
             f"월 형식이 올바르지 않습니다: {month_str}",
-            hint="예: 2024-01 (YYYY-MM)",
+            hint="예: 2026-11 (YYYY-MM)",
+        )
+
+    try:
+        datetime.strptime(month_str, "%Y-%m")
+
+    except ValueError:
+        raise ValidationError(
+            f"존재하지 않는 월입니다: {month_str}",
+            hint="01부터 12 사이의 월을 입력하세요.",
         )
 
 

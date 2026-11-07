@@ -29,8 +29,10 @@ def track(func):
             elapsed = time.perf_counter() - start
             logger.error("[오류] %s: %s (%.3f초)", func.__name__, e.message, elapsed)
             print(f"[오류] {e.message}", file=sys.stderr)
-            if e.hint:
-                print(f"[힌트] {e.hint}", file=sys.stderr)
+            
+            hint = e.hint or "입력값과 명령어 옵션을 확인해 주세요."
+            print(f"[힌트] {hint}", file=sys.stderr)
+
             return 1
         except Exception as e:
             # 예상하지 못한 오류도 스택트레이스 대신 원인 + 힌트 형태로 출력한다.

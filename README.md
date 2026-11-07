@@ -320,7 +320,7 @@ $ python -m budget_app backup
 
 ## 테스트
 
-`tests/test_services.py`에 서비스 계층 단위 테스트가 있습니다(`unittest`, 표준 라이브러리만 사용, 총 18개).
+`tests/test_services.py`에 서비스 계층 단위 테스트가 있습니다(`unittest`, 표준 라이브러리만 사용, 총 23개).
 
 ```bash
 python -m unittest discover -s tests -t .

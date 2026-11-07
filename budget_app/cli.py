@@ -30,6 +30,18 @@ Services = Tuple[TransactionService, CategoryService, BudgetService, SummaryServ
 
 def build_services(data_dir: str) -> Services:
     os.makedirs(data_dir, exist_ok=True)
+
+    for filename in (
+        "transactions.jsonl",
+        "categories.jsonl",
+        "budgets.jsonl",
+    ):
+        path = os.path.join(data_dir, filename)
+
+        if not os.path.exists(path):
+            with open(path, "w", encoding="utf-8"):
+                pass
+    
     tx_repo = TransactionRepository(os.path.join(data_dir, "transactions.jsonl"))
     cat_repo = CategoryRepository(os.path.join(data_dir, "categories.jsonl"))
     budget_repo = BudgetRepository(os.path.join(data_dir, "budgets.jsonl"))
@@ -240,22 +252,61 @@ def cmd_category_list(args: argparse.Namespace, services: Services) -> None:
 
 
 @track
-def cmd_category_remove(args: argparse.Namespace, services: Services) -> None:
+def cmd_category_remove(
+    args: argparse.Namespace, services: Services
+) -> None:
     tx_service, category_service, *_ = services
-    used = tx_service.used_categories()
-    if args.name in used:
+
+    if not category_service.exists(args.name):
+        raise ValidationError(
+            f"존재하지 않는 카테고리입니다: {args.name}",
+            hint="category list로 등록된 카테고리를 확인하세요.",
+        )
+
+    recurring_service = build_recurring_service(
+        args.data_dir, tx_service, category_service
+    )
+
+    used_by_tx = args.name in tx_service.used_categories()
+    used_by_recurring = (
+        args.name in recurring_service.used_categories()
+    )
+
+    if used_by_tx or used_by_recurring:
         if not args.replace_with:
             raise ValidationError(
-                f"'{args.name}' 카테고리를 사용 중인 거래가 있어 삭제할 수 없습니다.",
-                hint="update로 거래를 하나씩 옮기거나, --replace-with <대체카테고리>로 한 번에 옮기세요.",
+                f"'{args.name}' 카테고리를 사용 중입니다.",
+                hint="--replace-with 옵션으로 대체 카테고리를 지정하세요.",
             )
+
         if args.replace_with == args.name:
-            raise ValidationError("대체 카테고리는 삭제할 카테고리와 달라야 합니다.")
+            raise ValidationError(
+                "대체 카테고리는 삭제할 카테고리와 달라야 합니다."
+            )
+
         if not category_service.exists(args.replace_with):
-            raise ValidationError(f"대체 카테고리가 존재하지 않습니다: {args.replace_with}")
-        moved = tx_service.reassign_category(args.name, args.replace_with)
-        print(f"[안내] {moved}건의 거래를 '{args.replace_with}' 카테고리로 이관했습니다.")
-    category_service.remove(args.name, tx_service.used_categories())
+            raise ValidationError(
+                f"대체 카테고리가 존재하지 않습니다: {args.replace_with}",
+                hint="category list로 카테고리를 확인하세요.",
+            )
+
+        rule_count = recurring_service.reassign_category(
+            args.name, args.replace_with
+        )
+
+        tx_count = tx_service.reassign_category(
+            args.name, args.replace_with
+        )
+
+        print(
+            f"[안내] 일반 거래 {tx_count}건, "
+            f"반복 규칙 {rule_count}건을 이관했습니다."
+        )
+
+    category_service.remove(
+        args.name, tx_service.used_categories()
+    )
+
     print(f"[삭제 완료] category={args.name}")
 
 
@@ -275,6 +326,13 @@ def cmd_update(args: argparse.Namespace, services: Services) -> None:
         fields["memo"] = args.memo
     if args.tags is not None:
         fields["tags"] = [t.strip() for t in args.tags.split(",") if t.strip()]
+    
+    if not fields:
+        raise ValidationError(
+            "수정할 항목이 지정되지 않았습니다.",
+            hint="예: update --id TX-000001 --amount 15000",
+        )
+    
     tx = tx_service.update(args.tid, **fields)
     print(f"[수정 완료] id={tx.id}")
 
@@ -296,6 +354,17 @@ def cmd_import(args: argparse.Namespace, services: Services) -> None:
     skipped = 0
     with open(args.csv_path, "r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
+
+        required_columns = {"date", "type", "category", "amount"}
+        actual_columns = set(reader.fieldnames or [])
+        missing_columns = required_columns - actual_columns
+
+        if missing_columns:
+            raise ValidationError(
+                "CSV 필수 헤더가 누락되었습니다: "
+                + ", ".join(sorted(missing_columns)),
+                hint="date,type,category,amount 헤더를 확인하세요.",
+            )
         # row_num은 실제 CSV 파일 기준 줄 번호(1행=헤더)로, 로그에서 문제 행을 바로 찾게 해준다.
         for row_num, row in enumerate(reader, start=2):
             try:
@@ -362,7 +431,12 @@ def cmd_backup(args: argparse.Namespace, services: Services) -> None:
     os.makedirs(backup_dir, exist_ok=True)
 
     copied = []
-    for fname in ("transactions.jsonl", "categories.jsonl", "budgets.jsonl"):
+    for fname in (
+        "transactions.jsonl",
+        "categories.jsonl",
+        "budgets.jsonl",
+        "recurring.jsonl",
+    ):
         src = os.path.join(data_dir, fname)
         if os.path.exists(src):
             shutil.copy2(src, os.path.join(backup_dir, fname))
@@ -432,10 +506,18 @@ def main() -> int:
 
     try:
         services = build_services(args.data_dir)
-    except AppError as e:
-        print(f"[오류] {e.message}", file=sys.stderr)
-        if e.hint:
-            print(f"[힌트] {e.hint}", file=sys.stderr)
+
+    except (AppError, OSError) as e:
+        if isinstance(e, AppError):
+            message = e.message
+            hint = e.hint or "입력값과 저장 경로를 확인해 주세요."
+        else:
+            message = str(e)
+            hint = "데이터 저장 폴더의 경로와 접근 권한을 확인해 주세요."
+
+        print(f"[오류] {message}", file=sys.stderr)
+        print(f"[힌트] {hint}", file=sys.stderr)
+
         return 1
 
     if args.command == "budget" and args.budget_command == "set":

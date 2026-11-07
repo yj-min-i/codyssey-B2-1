@@ -2,8 +2,7 @@
 
 CLI 계층은 이 서비스들만 호출하고, 서비스는 저장소(storage.py)만 호출한다.
 """
-from typing import List, Optional, Set, Union
-
+from heapq import nlargest
 from typing import List, Optional, Set, Union
 
 from .exceptions import NotFoundError, ValidationError
@@ -103,8 +102,18 @@ class TransactionService:
         return tx
 
     def list_recent(self, limit: int = 10) -> List[Transaction]:
-        all_tx = sorted(self.repo.iter_all(), key=lambda t: (t.date, t.id), reverse=True)
-        return all_tx[:limit]
+
+        if limit <= 0:
+            raise ValidationError(
+                "조회 개수는 1 이상이어야 합니다.",
+                hint="예: list --limit 10",
+            )
+
+        return nlargest(
+            limit,
+            self.repo.iter_all(),
+            key=lambda t: (t.date, t.id),
+        )
 
     def search(
         self,
@@ -115,6 +124,19 @@ class TransactionService:
         q: Optional[str] = None,
         tag: Optional[str] = None,
     ) -> List[Transaction]:
+        
+        if date_from is not None:
+            validate_date(date_from)
+
+        if date_to is not None:
+            validate_date(date_to)
+
+        if date_from and date_to and date_from > date_to:
+            raise ValidationError(
+                "시작일이 종료일보다 늦습니다.",
+                hint="--from과 --to의 날짜 순서를 확인하세요.",
+            )
+        
         results = []
         for tx in self.repo.iter_all():
             if date_from and tx.date < date_from:
@@ -215,6 +237,13 @@ class SummaryService:
 
     def monthly_summary(self, month: str, top: int = 3) -> dict:
         validate_month(month)
+
+        if top <= 0:
+            raise ValidationError(
+                "TOP 개수는 1 이상이어야 합니다.",
+                hint="예: summary --month 2026-11 --top 3",
+            )
+        
         txs = [t for t in self.tx_service.repo.iter_all() if t.date.startswith(month)]
 
         total_income = sum(t.amount for t in txs if t.type == "income")
@@ -301,6 +330,27 @@ class RecurringService:
 
     def list_all(self) -> List[RecurringRule]:
         return list(self.repo.iter_all())
+
+    def used_categories(self) -> Set[str]:
+        """반복 거래 규칙에서 사용 중인 카테고리를 반환한다."""
+        return {rule.category for rule in self.repo.iter_all()}
+
+    def reassign_category(
+        self, old_category: str, new_category: str
+    ) -> int:
+        """반복 거래 규칙의 카테고리를 다른 카테고리로 변경한다."""
+        rules = list(self.repo.iter_all())
+        moved = 0
+
+        for rule in rules:
+            if rule.category == old_category:
+                rule.category = new_category
+                moved += 1
+
+        if moved:
+            self.repo.rewrite_all(rules)
+
+        return moved
 
     def apply_month(self, month: str) -> int:
         """month(YYYY-MM)에 아직 적용 안 된 규칙들로 거래를 생성한다. 생성 건수를 반환한다."""
