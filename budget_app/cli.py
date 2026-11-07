@@ -1,5 +1,6 @@
 """CLI 계층: 명령행 인자를 파싱하고 서비스 계층을 호출한다."""
 import argparse
+import calendar
 import csv
 import logging
 import os
@@ -348,11 +349,15 @@ def cmd_delete(args: argparse.Namespace, services: Services) -> None:
 def cmd_import(args: argparse.Namespace, services: Services) -> None:
     tx_service, *_ = services
     if not os.path.exists(args.csv_path):
-        raise ValidationError(f"파일을 찾을 수 없습니다: {args.csv_path}")
+        raise ValidationError(
+            f"파일을 찾을 수 없습니다: {args.csv_path}",
+            hint="경로를 확인하세요. 예: import --from ./import.csv",
+        )
 
     imported = 0
     skipped = 0
-    with open(args.csv_path, "r", encoding="utf-8", newline="") as f:
+    # utf-8-sig: 일반 UTF-8과 엑셀이 붙이는 BOM(UTF-8 with BOM)을 모두 읽을 수 있다.
+    with open(args.csv_path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
 
         required_columns = {"date", "type", "category", "amount"}
@@ -403,7 +408,10 @@ def cmd_export(args: argparse.Namespace, services: Services) -> None:
 
     if args.month:
         validate_month(args.month)
-        date_from, date_to = f"{args.month}-01", f"{args.month}-31"
+        # 4월·2월처럼 31일이 없는 달에서도 유효한 날짜가 되도록 실제 말일을 계산한다.
+        year, month = int(args.month[:4]), int(args.month[5:7])
+        last_day = calendar.monthrange(year, month)[1]
+        date_from, date_to = f"{args.month}-01", f"{args.month}-{last_day:02d}"
     else:
         validate_date(args.date_from)
         validate_date(args.date_to)

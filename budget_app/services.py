@@ -3,7 +3,7 @@
 CLI 계층은 이 서비스들만 호출하고, 서비스는 저장소(storage.py)만 호출한다.
 """
 from heapq import nlargest
-from typing import List, Optional, Set, Union
+from typing import Iterator, List, Optional, Set, TypeVar, Union
 
 from .exceptions import NotFoundError, ValidationError
 from .models import Budget, Category, RecurringRule, Transaction
@@ -12,6 +12,13 @@ from .utils import validate_date, validate_month
 
 VALID_TYPES = ("income", "expense")
 DEFAULT_CATEGORIES = ("food", "transport", "rent", "etc")
+
+T = TypeVar("T")
+
+
+def _pick(new: Optional[T], current: T) -> T:
+    """update에서 새 값이 지정되지 않았으면(None) 기존 값을 그대로 쓴다."""
+    return current if new is None else new
 
 
 class CategoryService:
@@ -42,7 +49,10 @@ class CategoryService:
 
     def remove(self, name: str, used_categories: Set[str]) -> None:
         if not self.exists(name):
-            raise NotFoundError(f"존재하지 않는 카테고리입니다: {name}")
+            raise NotFoundError(
+                f"존재하지 않는 카테고리입니다: {name}",
+                hint="category list로 등록된 카테고리를 확인하세요.",
+            )
         if name in used_categories:
             raise ValidationError(
                 f"'{name}' 카테고리를 사용 중인 거래가 있어 삭제할 수 없습니다.",
@@ -159,16 +169,18 @@ class TransactionService:
         all_tx = list(self.repo.iter_all())
         target = next((tx for tx in all_tx if tx.id == tid), None)
         if target is None:
-            raise NotFoundError(f"존재하지 않는 거래 id입니다: {tid}")
+            raise NotFoundError(
+                f"존재하지 않는 거래 id입니다: {tid}",
+                hint="list 또는 search로 거래 id를 확인하세요.",
+            )
 
-        new_type = fields.get("type") if fields.get("type") is not None else target.type
-        new_date = fields.get("date") if fields.get("date") is not None else target.date
-        new_category = (
-            fields.get("category") if fields.get("category") is not None else target.category
-        )
-        new_amount = fields.get("amount") if fields.get("amount") is not None else target.amount
-        new_memo = fields.get("memo") if fields.get("memo") is not None else target.memo
-        new_tags = fields.get("tags") if fields.get("tags") is not None else target.tags
+        # 값이 None이면 "바꾸지 않음"으로 보고 기존 값을 유지한다.
+        new_type = _pick(fields.get("type"), target.type)
+        new_date = _pick(fields.get("date"), target.date)
+        new_category = _pick(fields.get("category"), target.category)
+        new_amount = _pick(fields.get("amount"), target.amount)
+        new_memo = _pick(fields.get("memo"), target.memo)
+        new_tags = _pick(fields.get("tags"), target.tags)
 
         amount_int = self._validate(new_type, new_date, new_amount, new_category)
 
@@ -186,8 +198,15 @@ class TransactionService:
         all_tx = list(self.repo.iter_all())
         remaining = [tx for tx in all_tx if tx.id != tid]
         if len(remaining) == len(all_tx):
-            raise NotFoundError(f"존재하지 않는 거래 id입니다: {tid}")
+            raise NotFoundError(
+                f"존재하지 않는 거래 id입니다: {tid}",
+                hint="list 또는 search로 거래 id를 확인하세요.",
+            )
         self.repo.rewrite_all(remaining)
+
+    def iter_all(self) -> Iterator[Transaction]:
+        """저장된 거래를 한 줄씩 흘려보낸다(제너레이터). 집계처럼 전체를 훑는 호출자용."""
+        return self.repo.iter_all()
 
     def used_categories(self) -> Set[str]:
         return {tx.category for tx in self.repo.iter_all()}
@@ -244,7 +263,7 @@ class SummaryService:
                 hint="예: summary --month 2026-11 --top 3",
             )
         
-        txs = [t for t in self.tx_service.repo.iter_all() if t.date.startswith(month)]
+        txs = [t for t in self.tx_service.iter_all() if t.date.startswith(month)]
 
         total_income = sum(t.amount for t in txs if t.type == "income")
         total_expense = sum(t.amount for t in txs if t.type == "expense")

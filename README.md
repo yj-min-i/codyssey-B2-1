@@ -1,259 +1,169 @@
 # 나만의 용돈 기입장
 
-Python 표준 라이브러리만으로 만든 파일 기반 콘솔 가계부입니다.
-거래 추가/조회/검색/수정/삭제, 월별 요약, 카테고리·예산 관리, CSV 가져오기/내보내기, 데이터 백업을 지원합니다.
+Python **표준 라이브러리만**으로 만든 파일 기반 콘솔 가계부입니다.
+거래 추가/조회/검색/수정/삭제, 월별 요약, 카테고리·예산 관리, CSV 가져오기/내보내기, 백업, 반복 내역을 지원합니다.
 
-## 목차
+## 평가문항별 바로가기
 
-- [실행 방법](#실행-방법)
-- [프로젝트 구조](#프로젝트-구조)
-- [아키텍처](#아키텍처)
-- [모듈별 공개 API](#모듈별-공개-api)
-- [클래스 책임 범위](#클래스-책임-범위)
-- [데코레이터](#데코레이터)
-- [저장 방식](#저장-방식)
-- [저장 포맷 선택 근거: JSONL vs CSV](#저장-포맷-선택-근거-jsonl-vs-csv)
-- [백업과 복구](#백업과-복구)
-- [카테고리 삭제와 대체 전략](#카테고리-삭제와-대체-전략)
-- [주요 명령 예시](#주요-명령-예시)
-- [import / export CSV 스키마](#import--export-csv-스키마)
-- [오류 처리](#오류-처리)
-- [테스트](#테스트)
-- [성능과 확장성](#성능과-확장성)
-- [타입 힌트](#타입-힌트)
-- [개발 환경 / 제약](#개발-환경--제약)
+| 평가 항목 | 확인할 곳 |
+| --- | --- |
+| 항목 1. 기능 동작 / 데이터 유지 / 오류 처리 / 종료 코드 | [실행 방법](#1-실행-방법) → [기능별 실행 방법](#2-기능별-실행-방법-하나씩) → [저장 정책](#3-저장-정책) → [CSV 스키마](#4-import--export-csv-스키마) → [오류 처리와 종료 코드](#10-오류-처리와-종료-코드) |
+| 항목 2. 모듈/클래스 구조, update/delete 안전성 | [구조 설명](#5-구조-설명-항목-2) |
+| 항목 3. 제너레이터 / 데코레이터 / 타입 힌트 | [제너레이터](#6-1-제너레이터로-스트리밍-처리) · [데코레이터](#6-2-데코레이터로-공통-기능-분리) · [타입 힌트](#6-3-타입-힌트) |
+| 항목 4. JSONL vs CSV / 10만 건 / 깨진 CSV 행 | [저장 포맷 선택](#7-1-jsonl-vs-csv--왜-jsonl인가) · [10만 건 분석](#7-2-거래가-10만-건이-되면) · [import 신뢰성](#7-3-import-csv에-깨진-행이-섞이면) |
+| 항목 5. 보너스 | [보너스](#8-보너스-과제) |
 
-## 실행 방법
+---
 
-Python 3.10 이상이 필요합니다 (표준 라이브러리만 사용하므로 별도 설치 불필요).
+## 1. 실행 방법
+
+**Python 3.10 이상**이 필요합니다. 외부 패키지 설치는 필요 없습니다.
+
+> **`python`이 아니라 `python3`로 실행하세요.** macOS/Linux에는 `python` 명령이 없는 환경이 많아서(`command not found: python`), 이 README의 모든 명령은 `python3`로 적었습니다.
 
 ```bash
-python -m budget_app --help
-python -m budget_app <command> --help   # 각 명령의 상세 옵션 확인
+# 0) 버전 확인 (3.10 이상이어야 함)
+python3 --version
+
+# 1) 내려받기
+git clone https://github.com/yj-min-i/codyssey-B2-1.git
+cd codyssey-B2-1          # ← budget_app/ 폴더가 보이는 위치(저장소 루트)에서 실행해야 합니다
+
+# 2) 도움말 (모든 명령은 --help 지원)
+python3 -m budget_app --help
+python3 -m budget_app add --help
+
+# 3) 실행 형식
+python3 -m budget_app <command> [options]
 ```
 
-예:
-```bash
-python -m budget_app add
-python -m budget_app list --limit 10
-python -m budget_app summary --month 2024-01
-```
+주의할 점 세 가지:
 
-데이터 저장 폴더는 기본값 `./data`이며, `--data-dir`로 변경할 수 있습니다.
+- 반드시 **저장소 루트**(`budget_app/` 폴더가 있는 곳)에서 실행합니다. 다른 폴더에서는 `No module named budget_app` 오류가 납니다.
+- 데이터 저장 폴더는 기본 `./data` (실행한 위치 기준)이며, **`--data-dir`는 명령 이름 앞에** 적습니다.
+  ```bash
+  python3 -m budget_app --data-dir ./mydata add      # O
+  python3 -m budget_app add --data-dir ./mydata      # X (argparse 오류, 종료 코드 2)
+  ```
+- 실행 로그는 실행한 폴더의 `app.log`에 쌓입니다. (`data/`, `app.log`, `export.csv`는 `.gitignore` 대상)
 
-```bash
-python -m budget_app --data-dir ./mydata add
-```
-
-## 프로젝트 구조
-
-```
-budget_app/
-  __init__.py
-  __main__.py     # python -m budget_app 진입점
-  models.py        # 데이터 모델 (Transaction, Category, Budget)
-  exceptions.py     # 커스텀 예외 (AppError, ValidationError, NotFoundError)
-  decorators.py      # 공통 관심사 데코레이터 (로그/예외처리/시간측정)
-  utils.py             # 검증, 원자적 파일쓰기, id 생성
-  storage.py            # 저장소(Repository) — 파일 입출력 전담
-  services.py            # 서비스 — 검증 + 비즈니스 로직
-  cli.py                  # argparse 기반 CLI, 명령 함수(cmd_*)
-tests/
-  test_services.py         # 서비스 계층 단위 테스트 (unittest)
-data/                       # 실행 시 자동 생성 (저장 파일)
-  transactions.jsonl
-  categories.jsonl
-  budgets.jsonl
-  recurring.jsonl
-  backup/<timestamp>/        # backup 명령 실행 시 생성
-app.log                       # 실행 로그 (자동 생성)
-```
-
-## 아키텍처
-
-4개 계층으로 책임을 분리했습니다. 화살표는 "알고 있는 방향"입니다 — CLI는 서비스를 알지만, 서비스는 CLI를 모릅니다.
-
-```
-CLI (cli.py) → Service (services.py) → Repository (storage.py) → Model (models.py)
-```
-
-- **CLI**: 사용자 입력(대화형 `input()` / 옵션 인자)을 받아 서비스 계층을 호출하고 결과를 출력. `argparse`로 명령/옵션 구조를 정의. 저장 방식(파일 포맷, 경로 등)을 전혀 모른다.
-- **Service**: 입력 검증과 비즈니스 로직 담당. CLI는 이 계층만 호출하고, 서비스는 저장소(storage.py)만 호출한다. 검증 실패는 항상 `ValidationError`/`NotFoundError`(둘 다 `AppError`)를 던진다.
-- **Repository**: 실제 파일 읽기/쓰기만 담당. 조회는 **제너레이터(yield)로 한 줄씩** 읽어 파일 전체를 메모리에 올리지 않는다. 비즈니스 규칙(예: 금액이 양수여야 한다)은 전혀 모른다 — 그건 서비스의 책임이다.
-- **Model**: `dataclass`로 거래/카테고리/예산의 필드와 타입을 명확히 계약. `to_dict`/`from_dict`로 JSONL 직렬화를 캡슐화.
-
-이렇게 나눈 이유는, 예를 들어 저장 포맷을 JSONL에서 다른 포맷으로 바꾸더라도 Repository만 고치면 되고 Service/CLI는 건드릴 필요가 없게 하기 위해서입니다. 반대로 CLI 옵션 이름을 바꾸는 건 Service/Repository에 전혀 영향을 주지 않습니다.
-
-## 모듈별 공개 API
-
-각 모듈에서 외부(다른 모듈)가 실제로 사용하는 공개 함수/클래스만 정리했습니다.
-
-**`models.py`**
-| 이름 | 설명 |
-| --- | --- |
-| `Transaction(id, type, date, amount, category, memo, tags)` | 거래 1건. `to_dict()` / `Transaction.from_dict(data)` |
-| `Category(name)` | 카테고리 1건. `to_dict()` / `Category.from_dict(data)` |
-| `Budget(month, amount)` | 월별 예산 1건. `to_dict()` / `Budget.from_dict(data)` |
-
-**`exceptions.py`**
-| 이름 | 설명 |
-| --- | --- |
-| `AppError(message, hint="")` | 모든 사용자 대상 오류의 기반 클래스 |
-| `ValidationError` | 입력값 검증 실패 |
-| `NotFoundError` | id/카테고리/월 등 조회 대상 없음 |
-
-**`storage.py`**
-| 이름 | 설명 |
-| --- | --- |
-| `TransactionRepository(path)` | `.iter_all()` `.append(tx)` `.rewrite_all(txs)` `.next_id()` |
-| `CategoryRepository(path)` | `.iter_all()` `.append(cat)` `.rewrite_all(cats)` |
-| `BudgetRepository(path)` | `.iter_all()` `.upsert(budget)` `.get(month)` |
-
-**`services.py`**
-| 이름 | 설명 |
-| --- | --- |
-| `CategoryService(repo)` | `.list_names()` `.exists(name)` `.ensure_default_categories()` `.add(name)` `.remove(name, used_categories)` |
-| `TransactionService(repo, category_service)` | `.add(...)` `.list_recent(limit)` `.search(...)` `.update(tid, **fields)` `.delete(tid)` `.used_categories()` `.reassign_category(old, new)` |
-| `BudgetService(repo)` | `.set_budget(month, amount)` `.get_budget(month)` |
-| `SummaryService(tx_service, budget_service)` | `.monthly_summary(month, top=3) -> dict` |
-
-**`decorators.py`**
-| 이름 | 설명 |
-| --- | --- |
-| `track(func)` | 로그+시간측정+예외처리 데코레이터. `cmd_*` 함수에 적용 |
-
-**`cli.py`**
-| 이름 | 설명 |
-| --- | --- |
-| `build_services(data_dir) -> Services` | 서비스 4종 인스턴스 생성 |
-| `build_parser() -> argparse.ArgumentParser` | 전체 명령/옵션 구조 정의 |
-| `cmd_add, cmd_list, cmd_search, cmd_summary, cmd_budget_set, cmd_category_add/list/remove, cmd_update, cmd_delete, cmd_import, cmd_export, cmd_backup` | 명령별 핸들러. 전부 `@track` 적용, 반환값 없음(`None`) — 종료 코드는 `track`이 처리 |
-| `main() -> int` | 진입점. 파싱 → 서비스 생성 → 명령 분기 → 종료 코드 반환 |
-
-## 클래스 책임 범위
-
-각 클래스가 어떤 상태를 들고 있고, 어디까지 바꿀 수 있는지 명시합니다.
-
-- **`Transaction`/`Category`/`Budget`**: 상태를 갖지 않는 순수 데이터 컨테이너(dataclass)에 가깝다. 필드를 직접 바꿔도(예: `tx.amount = 100`) 파일에는 반영되지 않는다 — 반드시 Repository의 `append`/`rewrite_all`을 거쳐야 영속화된다.
-- **`TransactionRepository`/`CategoryRepository`/`BudgetRepository`**: 인스턴스가 들고 있는 상태는 파일 경로(`self.path`) 하나뿐이다. 다만 `TransactionRepository`는 성능을 위해 `next_id()` 호출 결과를 프로세스 내에서만 캐시하는 내부 카운터(`self._next_seq`)를 갖는다 — 이 캐시는 파일 내용을 바꾸지 않고, 같은 프로세스 안에서 반복 호출될 때만 유효하다(자세한 이유는 [성능과 확장성](#성능과-확장성) 참고).
-- **`CategoryService`/`TransactionService`/`BudgetService`/`SummaryService`**: 자체 상태는 없고(Repository 참조만 들고 있음), 매 메서드 호출마다 Repository를 통해 파일에서 다시 읽고 다시 쓴다. 따라서 서비스 인스턴스를 여러 개 만들어도 서로 상태를 공유하지 않으며, 항상 "파일에 쓰여 있는 것이 곧 진실"이다.
-- **`TransactionService`가 `CategoryService`를 참조하는 이유**: 거래를 추가/수정할 때 카테고리가 실제로 등록되어 있는지 검증해야 하기 때문이다(계층을 넘지 않기 위해 Repository를 직접 참조하지 않고 서비스를 통해서만 접근한다).
-
-## 데코레이터
-
-`decorators.py`의 `track` 데코레이터 하나가 세 가지 공통 관심사를 전부 처리합니다. 모든 `cmd_*` 함수(`cli.py`)에 `@track`으로 적용되어 있습니다.
-
-1. **실행 로그**: 명령 시작/종료를 `app.log`에 기록 (`[시작] cmd_add`, `[완료] cmd_add (0.003초)`)
-2. **실행 시간 측정**: `time.perf_counter()`로 시작~종료 소요 시간을 재서 로그에 남김
-3. **예외 처리**: `AppError`(및 그 하위 `ValidationError`/`NotFoundError`)는 `[오류] 원인` + `[힌트] 해결법`으로 표준 출력에, 그 외 예상 못 한 예외도 스택트레이스 없이 `[오류] 예상치 못한 문제가 발생했습니다: ...`로 변환해서 출력한다. 두 경우 모두 로그에도 남긴다.
-
-세 관심사를 하나의 데코레이터로 묶은 이유는, 이 셋이 항상 "명령 하나의 시작부터 끝까지"라는 같은 생명주기를 공유하기 때문입니다(로그를 남기려면 어차피 시작/끝 시점이 필요하고, 그 시점에 시간도 같이 재고, 그 사이에서 난 예외도 같이 잡는 게 자연스럽습니다). 예시:
-
-```python
-@track
-def cmd_add(args, services):
-    ...
-    tx = tx_service.add(...)   # 여기서 ValidationError가 나면
-    print(f"[저장 완료] id={tx.id}")
-# track이 자동으로 잡아서 "[오류] ..." + "[힌트] ..."로 출력하고 종료코드 1을 반환한다
-```
-
-## 저장 방식
-
-- 포맷: **JSONL** (한 줄에 JSON 객체 하나)
-- 위치: `./data` (`--data-dir`로 변경 가능), 파일 3개로 분리 저장
-  - `transactions.jsonl` — 거래 내역
-  - `categories.jsonl` — 카테고리 목록
-  - `budgets.jsonl` — 월별 예산
-- 최초 실행 시 `data/` 폴더와 파일이 자동 생성되고, 카테고리가 비어있으면 기본 카테고리(`food`, `transport`, `rent`, `etc`)가 자동으로 만들어집니다.
-- **원자적 교체**: `update`/`delete`는 전체 데이터를 임시 파일(`.tmp_...`)에 다시 쓴 뒤 `os.replace`로 원자적으로 교체합니다. `os.replace`가 실행되기 **전에** 실패하면(디스크 꽉 참, 권한 오류 등) 원본 파일은 전혀 건드려지지 않은 채 그대로 남고, 임시 파일만 정리됩니다 — 즉 실패해도 데이터가 깨지거나 유실되지 않습니다. 이 실패는 `app.log`에 `[저장 실패] ... 원본을 그대로 유지합니다: <원인>`으로 기록됩니다.
-
-## 저장 포맷 선택 근거: JSONL vs CSV
-
-미션 요구사항은 JSONL/CSV 중 하나를 선택하는 것이었고, **내부 저장 포맷은 JSONL**을 선택했습니다(CSV는 `import`/`export`로 외부와 주고받는 교환 포맷으로만 사용).
-
-| 비교 항목 | JSONL | CSV |
-| --- | --- | --- |
-| 한 줄 = 레코드 하나 (append-only, 스트리밍에 유리) | O | O |
-| 가변 길이 리스트 필드(`tags`) 표현 | 네이티브 지원 (`["meal","cafe"]`) | 구분자(`,`)가 컬럼 구분자와 충돌 → 별도 이스케이프 규칙 필요 |
-| 필드에 쉼표/줄바꿈/따옴표가 섞여도 안전한가 | O (JSON 문자열 이스케이프가 표준으로 처리) | 인용부호(`"`) 규칙을 직접 신경써야 함 |
-| 타입 보존(정수 vs 문자열) | O (JSON 타입 그대로) | X (전부 문자열, 파싱 시 직접 변환 필요) |
-| 필드 추가/변경 시 하위 호환 | 쉬움 (없는 키는 `.get()`으로 기본값 처리) | 헤더 순서/개수가 바뀌면 전체 파서 영향 |
-| 사람이 코드 리뷰/diff로 한 줄만 보고 이해하기 | 비교적 쉬움 (`{"id": "TX-000001", ...}`) | 쉬움 (스프레드시트로 바로 열림) |
-| 스프레드시트(Excel/Sheets)에서 바로 열어보기 | X | O |
-
-**결론**: 이 앱의 내부 데이터는 `tags`처럼 리스트 타입 필드가 있고, `memo`에 쉼표나 특수문자가 자유롭게 들어갈 수 있어서, 이스케이프를 신경 쓰지 않아도 되는 JSONL이 더 안전합니다. 반대로 `import`/`export`는 "다른 사람이 스프레드시트로 만들어서 주고받는" 상황을 상정한 기능이므로, 그 용도에는 보편적인 CSV가 더 적합합니다 — 그래서 **저장은 JSONL, 교환은 CSV**로 용도를 나눴습니다.
-
-## 백업과 복구
+테스트 실행(표준 라이브러리 `unittest`, 총 33개):
 
 ```bash
-python -m budget_app backup
+python3 -m unittest discover -s tests -t .
 ```
 
-`transactions.jsonl`, `categories.jsonl`, `budgets.jsonl` 중 존재하는 파일을 `data/backup/<YYYYMMDD_HHMMSS>/` 폴더에 타임스탬프와 함께 복사합니다. 예:
+---
 
-```
-data/backup/20240115_093000/
-  transactions.jsonl
-  categories.jsonl
-  budgets.jsonl
-```
+## 2. 기능별 실행 방법 (하나씩)
 
-**복구 절차** (별도 명령 없이 수동으로 파일을 되돌리는 방식입니다):
+아래 순서대로 따라 하면 모든 기능을 확인할 수 있습니다. 출력은 실제로 실행한 결과입니다. 각 명령 뒤에 `echo $?`를 붙이면 종료 코드(성공 0 / 오류 1)를 볼 수 있습니다.
 
-1. 복구하려는 시점의 백업 폴더를 확인합니다: `ls data/backup/`
-2. 현재 파일을 원하는 백업 시점의 파일로 덮어씁니다.
-   ```bash
-   cp data/backup/20240115_093000/transactions.jsonl data/transactions.jsonl
-   cp data/backup/20240115_093000/categories.jsonl data/categories.jsonl
-   cp data/backup/20240115_093000/budgets.jsonl data/budgets.jsonl
-   ```
-3. `python -m budget_app list`로 정상 복구됐는지 확인합니다.
-
-`data/` 폴더 전체(백업 포함)는 실행 시 자동 생성되는 결과물이라 `.gitignore`에 들어있어 git에는 올라가지 않습니다. 저장소 자체를 잃어버릴 위험에 대비하려면 `data/backup/`을 주기적으로 별도 스토리지(클라우드 드라이브 등)에 복사해두는 걸 권장합니다.
-
-## 카테고리 삭제와 대체 전략
-
-카테고리를 사용 중인 거래가 있으면 기본적으로 삭제가 막힙니다.
+### 2-0. 최초 실행 (저장 파일 자동 생성)
 
 ```bash
-$ python -m budget_app category remove --name food
-[오류] 'food' 카테고리를 사용 중인 거래가 있어 삭제할 수 없습니다.
-[힌트] update로 거래를 하나씩 옮기거나, --replace-with <대체카테고리>로 한 번에 옮기세요.
+$ python3 -m budget_app list
+데이터 없음
+$ ls data
+budgets.jsonl  categories.jsonl  transactions.jsonl
+
+$ python3 -m budget_app category list
+- food
+- transport
+- rent
+- etc
 ```
 
-한 건씩 `update --id <id> --category <새카테고리>`로 옮길 수도 있지만, 거래가 많으면 번거롭습니다. 이럴 때 `--replace-with`로 **그 카테고리를 쓰는 모든 거래를 한 번에 다른 카테고리로 이관한 뒤** 삭제할 수 있습니다.
+저장 파일이 없으면 **자동 생성**하고, 카테고리 파일이 비어 있으면 **기본 카테고리 4개(`food, transport, rent, etc`)를 자동 생성**합니다(미션의 "안 A"). 
+
+### 2-1. 카테고리 관리 `category add / list / remove`
 
 ```bash
-$ python -m budget_app category remove --name food --replace-with etc
-[안내] 3건의 거래를 'etc' 카테고리로 이관했습니다.
+$ python3 -m budget_app category add          # 대화형
+카테고리명: study
+[저장 완료] category=study
+
+$ python3 -m budget_app category list
+- food
+- transport
+- rent
+- etc
+- study
+```
+
+**삭제** — 사용 중인 카테고리는 그냥 지울 수 없고, 대체 카테고리를 요구합니다(삭제 막기 + 대체 요구).
+
+```bash
+$ python3 -m budget_app category remove --name food
+[오류] 'food' 카테고리를 사용 중입니다.
+[힌트] --replace-with 옵션으로 대체 카테고리를 지정하세요.
+
+$ python3 -m budget_app category remove --name food --replace-with etc
+[안내] 일반 거래 2건, 반복 규칙 0건을 이관했습니다.
 [삭제 완료] category=food
+
+$ python3 -m budget_app category remove --name study      # 사용 중이 아니면 바로 삭제
+[삭제 완료] category=study
+
+$ python3 -m budget_app category remove --name ghost
+[오류] 존재하지 않는 카테고리입니다: ghost
+[힌트] category list로 등록된 카테고리를 확인하세요.
 ```
 
-`--replace-with`로 지정한 카테고리가 존재하지 않거나, 삭제할 카테고리와 같으면 이관 전에 오류로 막습니다(중간에 절반만 이관되는 상태가 생기지 않도록, 검증을 전부 통과한 뒤에만 실제 이관을 수행합니다).
-
-## 주요 명령 예시
+### 2-2. 거래 추가 `add` (대화형 입력)
 
 ```bash
-# 거래 추가 (대화형)
-$ python -m budget_app add
-날짜(YYYY-MM-DD): 2024-01-15
+$ python3 -m budget_app add
+날짜(YYYY-MM-DD): 2026-11-02
 타입(income/expense): expense
 카테고리: food
 금액(양수): 15000
 메모(선택): 점심
 태그(쉼표로 구분, 없으면 엔터): meal
-[저장 완료] id=TX-000001
+[저장 완료] id=TX-000002
+```
 
-# 목록 조회
-$ python -m budget_app list --limit 3
-TX-000001 | 2024-01-15 | expense | food | 15000 | 점심 | meal
+날짜 형식 오류, 0 이하 금액, 허용되지 않은 type, 등록되지 않은 category는 오류 메시지로 거부합니다(→ [2-10](#2-10-잘못된-입력--오류--종료-코드-확인)).
 
-# 검색
-$ python -m budget_app search --category food --type expense --from 2024-01-01 --to 2024-01-31
+### 2-3. 거래 목록 `list`
 
-# 월별 요약
-$ python -m budget_app summary --month 2024-01 --top 3
+```bash
+$ python3 -m budget_app list --limit 3        # 최신순, 기본값 10
+TX-000005  | 2026-11-06 | expense | food       |     30000 | 저녁 | meal,friends
+TX-000004  | 2026-11-05 | expense | rent       |    150000 | 월세
+TX-000003  | 2026-11-03 | expense | transport  |     20000 | 교통카드
+```
+
+컬럼(`id | date | type | category | amount | memo | tags`)은 문자열 정렬(`ljust`/`rjust`)로 칸을 맞춥니다.
+
+### 2-4. 거래 검색 `search`
+
+모든 조건은 선택이며 함께 쓰면 AND로 적용됩니다. 결과는 최신순입니다.
+
+```bash
+$ python3 -m budget_app search --category food --type expense --from 2026-11-01 --to 2026-11-30
+TX-000005  | 2026-11-06 | expense | food       |     30000 | 저녁 | meal,friends
+TX-000002  | 2026-11-02 | expense | food       |     15000 | 점심 | meal
+
+$ python3 -m budget_app search --q 점심        # 메모 키워드
+$ python3 -m budget_app search --tag meal      # 태그
+```
+
+| 옵션 | 의미 |
+| --- | --- |
+| `--from`, `--to` | 기간(YYYY-MM-DD). 시작일이 종료일보다 늦으면 오류 |
+| `--category` | 카테고리 |
+| `--type` | `income` / `expense` |
+| `--q` | 메모에 포함된 키워드 |
+| `--tag` | 태그 |
+
+### 2-5. 예산 설정 `budget set` + 월별 요약 `summary`
+
+```bash
+$ python3 -m budget_app budget set --month 2026-11 --amount 500000
+[저장 완료] 2026-11 예산 500000원
+
+$ python3 -m budget_app summary --month 2026-11 --top 3
 총 수입: 3000000원
 총 지출: 215000원
 잔액: 2785000원
@@ -263,125 +173,133 @@ $ python -m budget_app summary --month 2024-01 --top 3
 1) rent 150000원
 2) food 45000원
 3) transport 20000원
-
-# 예산 설정
-$ python -m budget_app budget set --month 2024-01 --amount 500000
-
-# 카테고리 관리
-$ python -m budget_app category add
-$ python -m budget_app category list
-$ python -m budget_app category remove --name etc
-$ python -m budget_app category remove --name food --replace-with etc   # 사용 중이어도 이관 후 삭제
-
-# 수정 / 삭제
-$ python -m budget_app update --id TX-000001 --amount 18000 --memo 점심수정
-$ python -m budget_app delete --id TX-000001
-
-# CSV 내보내기 / 가져오기
-$ python -m budget_app export --out export.csv --month 2024-01
-$ python -m budget_app import --from import.csv
-
-# 백업
-$ python -m budget_app backup
-[완료] 백업 생성: ./data/backup/20240115_093000 (3개 파일)
 ```
 
-## import / export CSV 스키마
+예산을 지출보다 낮게 다시 설정하면 **초과 경고**가 나옵니다(같은 달 예산은 덮어쓰기).
 
-| column | required | 설명 |
-| --- | --- | --- |
-| date | Y | YYYY-MM-DD |
-| type | Y | income / expense |
-| category | Y | 등록된 카테고리 |
-| amount | Y | 양수 정수 |
-| memo | N | 문자열 |
-| tags | N | 쉼표(,) 구분 문자열 |
-
-인코딩은 UTF-8, 첫 줄은 헤더입니다. `export`는 `--month YYYY-MM` 또는 `--from/--to` 중 하나 이상의 조건이 필수입니다.
-
-`import`는 형식에 맞지 않거나(날짜 형식 오류, 존재하지 않는 카테고리, 금액이 숫자가 아님 등) 필수 컬럼이 없는 행은 건너뛰고, 처리 결과를 `imported=N, skipped=M`으로 출력합니다. **건너뛴 행이 있으면** 어느 행(CSV 파일 기준 줄 번호, 헤더=1행)이 왜 걸렸는지를 `app.log`에 `WARNING` 레벨로 남깁니다 — CLI 표준 출력에는 총 건수만 보여주고(콘솔이 지저분해지지 않도록), 상세 사유는 로그 파일에서 확인하는 구조입니다.
-
+```bash
+$ python3 -m budget_app budget set --month 2026-11 --amount 100000
+$ python3 -m budget_app summary --month 2026-11 --top 2
+...
+예산: 100000원 (사용률 215.0%)
+[경고] 이번 달 예산을 초과했습니다!
 ```
-[완료] imported=8, skipped=2
+
+데이터가 없는 달은 `데이터 없음`을 출력합니다(`summary --month 2026-12`). 예산은 `data/budgets.jsonl`에 저장되어 재실행해도 유지됩니다.
+
+### 2-6. 거래 수정 `update` — **옵션 방식(안 A)으로 고정**
+
+`--id`로 대상을 정하고, 바꿀 필드만 옵션으로 지정합니다. 지정하지 않은 필드는 그대로 유지됩니다. (대화형 수정은 제공하지 않습니다.)
+
+```bash
+$ python3 -m budget_app update --id TX-000002 --amount 18000 --memo 점심수정
+[수정 완료] id=TX-000002
+
+$ python3 -m budget_app update --id TX-999999 --amount 1
+[오류] 존재하지 않는 거래 id입니다: TX-999999
+[힌트] list 또는 search로 거래 id를 확인하세요.
+
+$ python3 -m budget_app update --id TX-000002          # 바꿀 항목이 하나도 없으면
+[오류] 수정할 항목이 지정되지 않았습니다.
+[힌트] 예: update --id TX-000001 --amount 15000
+```
+
+사용 가능한 옵션: `--date --type --category --amount --memo --tags(쉼표 구분)`. 수정한 값도 `add`와 같은 검증을 다시 거칩니다.
+
+### 2-7. 거래 삭제 `delete`
+
+```bash
+$ python3 -m budget_app delete --id TX-000003
+[삭제 완료] id=TX-000003
+
+$ python3 -m budget_app delete --id TX-000003      # 이미 없는 id
+[오류] 존재하지 않는 거래 id입니다: TX-000003
+[힌트] list 또는 search로 거래 id를 확인하세요.
+```
+
+### 2-8. CSV 내보내기 / 가져오기 `export` / `import`
+
+```bash
+# 내보내기: --month 또는 --from/--to 중 하나 이상 필수
+$ python3 -m budget_app export --out export.csv --month 2026-11
+[완료] export.csv (4 records)
+$ python3 -m budget_app export --out range.csv --from 2026-11-01 --to 2026-11-15
+
+$ python3 -m budget_app export --out x.csv            # 조건 없음
+[오류] export는 --month 또는 --from/--to 조건이 필요합니다.
+[힌트] 예: export --out out.csv --month 2024-01
+
+# 가져오기
+$ python3 -m budget_app import --from import.csv
+[완료] imported=1, skipped=2
 [안내] 건너뛴 행의 상세 사유는 app.log에서 확인할 수 있습니다.
 ```
-```
-# app.log
-2024-01-15 09:30:00,123 WARNING [import 건너뜀] import.csv 3행: 날짜 형식이 올바르지 않습니다: 2024-13-40
-2024-01-15 09:30:00,124 WARNING [import 건너뜀] import.csv 7행: 등록되지 않은 카테고리입니다: 여행
-```
 
-## 오류 처리
+`export`로 만든 파일은 그대로 `import`에 쓸 수 있습니다(같은 스키마). 스키마는 [4번](#4-import--export-csv-스키마), 깨진 행 처리 방식은 [7-3](#7-3-import-csv에-깨진-행이-섞이면)을 보세요.
 
-- 잘못된 입력(날짜 형식, 0 이하 금액, 존재하지 않는 카테고리/id 등)은 파이썬 스택트레이스 대신 `[오류] 원인` + `[힌트] 해결 방법` 형태로 출력합니다.
-- **메시지 컨벤션 중앙화**: 모든 사용자 대상 오류는 `exceptions.py`의 `AppError(message, hint)` 하나의 형태로 표현되고, 실제 출력 문구 조립(`[오류] ...` / `[힌트] ...`)은 `decorators.py`의 `track` 한 곳에서만 이루어집니다. 즉 서비스 계층 코드 곳곳에서 `print`를 흩뿌리지 않고, "무엇이 잘못됐는지"만 예외로 던지면 "어떻게 보여줄지"는 항상 같은 한 곳에서 일관되게 처리됩니다.
-- **종료 코드 규약**: 모든 `cmd_*` 함수는 값을 반환하지 않습니다(`-> None`). 종료 코드는 오직 `track` 데코레이터가 결정합니다 — 정상 종료 시 `0`, `AppError` 또는 예상 못 한 예외 발생 시 `1`. `main()`은 `cmd_*` 호출 결과(이미 0/1로 변환된 값)를 그대로 반환하고, `__main__.py`가 `sys.exit(main())`으로 프로세스 종료 코드에 반영합니다.
-- 모든 명령의 실행 로그(시작/완료/오류, 소요 시간)는 `app.log`에 기록됩니다.
-
-## 테스트
-
-`tests/test_services.py`에 서비스 계층 단위 테스트가 있습니다(`unittest`, 표준 라이브러리만 사용, 총 23개).
+### 2-9. 저장된 데이터가 재실행 후에도 유지되는지 확인
 
 ```bash
-python -m unittest discover -s tests -t .
+$ python3 -m budget_app add          # 거래 1건 추가
+$ python3 -m budget_app budget set --month 2026-11 --amount 500000
+$ python3 -m budget_app category add # 카테고리 1개 추가
+# ↑ 프로그램은 매번 종료됩니다. 아래는 모두 '새 프로세스'로 다시 읽은 결과입니다.
+$ python3 -m budget_app list
+$ python3 -m budget_app category list
+$ python3 -m budget_app summary --month 2026-11
+$ wc -l data/*.jsonl                  # 저장 파일 3개(+ recurring.jsonl)에 줄이 남아 있음
 ```
 
-각 테스트는 `tempfile.TemporaryDirectory()`로 임시 데이터 폴더를 만들어 실행하므로 실제 `./data`를 건드리지 않습니다. 주요 커버리지:
+저장 파일은 `data/transactions.jsonl`, `data/categories.jsonl`, `data/budgets.jsonl` **3개**입니다(반복 내역을 쓰면 `recurring.jsonl`이 추가됩니다). 자동 테스트(`tests/test_cli.py`의 `PersistenceTests`)도 같은 확인을 합니다.
 
-- 거래 추가 검증: 잘못된 날짜, 0 이하 금액, 존재하지 않는 카테고리 거부
-- id가 `TX-000001`부터 순차 발급되고 실제로 파일에 저장되는지
-- 존재하지 않는 id로 update/delete 시 `NotFoundError`
-- 카테고리 중복 추가 거부, 사용 중인 카테고리 삭제 차단
-- `reassign_category`로 카테고리 일괄 이관 후 정상 삭제되는 흐름 (`category remove --replace-with`가 내부적으로 쓰는 것과 동일한 경로)
-- **예산 사용률·초과 경고**: 예산 설정 후 지출이 예산의 40%일 때 `usage_rate == 40.0`이고 `over_budget == False`, 지출이 예산을 넘으면(150%) `over_budget == True`가 되는지
-- 같은 달에 예산을 두 번 설정하면 덮어쓰기(upsert)되는지
-- 월별 요약의 카테고리 TOP N이 지출 합계 내림차순으로 정렬되는지
-- 데이터가 없는 달을 조회하면 `has_data == False`인지
+### 2-10. 잘못된 입력 / 오류 / 종료 코드 확인
 
-## 성능과 확장성
-
-> 아래는 대략 10만 건 규모를 가정했을 때의 병목 분석과 개선 방향입니다. 일부(①)는 실측 후 실제로 코드에 반영했고, 나머지(②③④)는 현재 미션의 "JSONL 또는 CSV 중 1개, 파일 3개"라는 제약을 지키는 선에서는 근본적으로 해결하기 어려운 구조적 한계라, 분석과 제안만 정리했습니다.
-
-**① `next_id()` 반복 스캔 — 실제로 발견해서 수정함**
-
-기존 구현은 거래를 추가할 때마다 `transactions.jsonl` 전체를 다시 읽어 최대 id를 계산했습니다. `add` 한 번이면 문제없지만, `import`로 대량 등록할 때는 N번째 행마다 N개를 다시 읽는 꼴이라 **O(n²)**이 됩니다. 실제로 측정해보니:
-
-| 건수 | 개선 전 (매번 전체 재스캔) | 개선 후 (프로세스 내 id 캐시) |
-| --- | --- | --- |
-| 3,000건 add | 16.43초 | 0.15초 |
-| 20,000건 add | (측정 안 함, 외삽 시 수백 초 이상) | 0.99초 |
-| 5,000행 CSV `import` (CLI 전체) | (외삽 시 약 45초) | 0.35초 |
-
-수정 방법은 `TransactionRepository`가 `next_id()`를 처음 호출할 때만 파일을 스캔해 마지막 순번을 구하고, 이후에는 프로세스 메모리에서 1씩 증가시키는 것입니다(`storage.py`의 `_next_seq` 캐시). 캐시는 파일 내용이 아니라 "이번 프로세스에서 지금까지 발급한 번호"만 기억하므로, 명령을 새로 실행하면(=새 프로세스) 다시 파일에서 정확하게 다시 계산합니다 — 그래서 안전합니다. 10만 건 단위 `import` 한 번에서 효과가 가장 큽니다.
-
-**② `update`/`delete`의 전체 파일 재작성**
-
-`update`/`delete`는 매번 파일 전체를 메모리로 읽고, 전체를 다시 써서 원자적으로 교체합니다. 10만 건 규모에서 거래 1건을 수정할 때마다 10만 줄을 통째로 다시 쓰는 셈이라, 수정/삭제가 잦아질수록 느려집니다.
-- **개선 방향(미구현, 제안)**: id → 파일 내 byte offset을 기록하는 별도 인덱스를 두고 해당 위치만 덮어쓰거나, 표준 라이브러리인 `sqlite3`로 전환해 실제 인덱스 기반 갱신을 사용하는 방법이 있습니다. 다만 이 미션은 "JSONL 또는 CSV 중 1개"를 저장 포맷으로 요구하므로, sqlite3 전환은 현재 범위를 벗어난 더 큰 설계 변경입니다.
-
-**③ `list`/`search`의 전체 로드 후 정렬**
-
-`list_recent`/`search`는 조건에 맞는 거래를 제너레이터로 걸러내긴 하지만, 최신순 정렬을 위해 결과를 리스트로 모은 뒤 `sort()`를 호출합니다. 조건에 맞는 결과가 적으면 문제없지만, 조건 없이 `list`만 호출해도 내부적으로 전체를 훑고 정렬합니다.
-- **개선 방향(미구현, 제안)**: JSONL이 항상 추가된 순서(오래된→최신)로 쌓인다는 특성을 이용해, 파일을 뒤에서부터 읽어 필요한 개수(`--limit`)만큼만 확보하면 정렬 자체가 필요 없어집니다. `collections.deque(maxlen=N)`으로 마지막 N개만 유지하며 스트리밍하는 방식이 바로 적용 가능합니다.
-- **소비자(호출하는 쪽) 권장사항**: 지금도 `list --limit`, `summary --top` 옵션이 있으므로, 대량 데이터에서는 기본값(무제한 대신 작은 limit)을 쓰는 것이 실질적인 완화책입니다. 전체 내보내기가 필요하면 `export`로 CSV를 만들어 스프레드시트/별도 도구에서 처리하는 걸 권장합니다.
-
-**④ `summary`의 월 무관 전체 스캔**
-
-`monthly_summary`는 요청한 달과 무관하게 `transactions.jsonl` 전체를 읽고 나서 날짜 접두사로 걸러냅니다. 10만 건이 여러 해에 걸쳐 쌓여 있어도 한 달치 요약을 위해 매번 전체를 읽습니다.
-- **개선 방향(미구현, 제안)**: 월별로 파일을 분리(`transactions/2024-01.jsonl` 등)하면 해당 월 파일만 읽으면 되지만, 이 역시 "파일 3개로 분리"라는 현재 미션 제약과는 다른 설계이므로 제안으로만 남깁니다.
-
-**병렬화에 대해**: 위 병목은 대부분 디스크에서 파일을 순차로 읽는 I/O 작업이지, CPU 연산이 오래 걸리는 게 아닙니다. 따라서 멀티프로세싱으로 CPU 코어를 늘리는 접근보다는, 애초에 읽어야 할 데이터량 자체를 줄이는 것(①②③④의 인덱싱/캐싱/파티셔닝)이 더 근본적인 해결책이라고 판단했습니다. 다만 `import`처럼 각 행의 검증이 서로 독립적인 대량 작업이라면, 여러 스레드가 CSV를 나눠 검증하고 마지막에 한 스레드만 파일에 쓰는 방식으로 I/O 대기 시간을 겹치게 할 여지는 있습니다(단, 표준 라이브러리 `threading` 사용 시 실제 이득은 검증 로직이 I/O를 얼마나 기다리는지에 달려 있어, 이 앱처럼 검증이 대부분 메모리 연산인 경우 효과가 제한적일 수 있습니다).
-
-## 타입 힌트
-
-모든 공개 함수/메서드에 매개변수·반환 타입을 명시했습니다. 특히 CLI 계층(`cli.py`)의 모든 `cmd_*` 핸들러는 `(args: argparse.Namespace, services: Services) -> None` 형태로 통일했습니다 — 여기서 `Services`는 `Tuple[TransactionService, CategoryService, BudgetService, SummaryService]`의 타입 별칭으로, 서비스 4종을 주고받는 계약을 한 곳에서 정의합니다.
-
-## 반복 내역 (보너스)
-
-월급/월세처럼 매달 반복되는 거래를 규칙으로 등록해두면, 원하는 달에 한 번에 생성할 수 있습니다.
+잘못된 입력은 파이썬 오류 화면(스택트레이스) 대신 `[오류] 원인` + `[힌트] 해결 방법`으로 출력됩니다.
 
 ```bash
-$ python -m budget_app recurring add
+$ python3 -m budget_app add
+날짜(YYYY-MM-DD): 2024-13-40
+타입(income/expense): expense
+카테고리: etc
+금액(양수): 1000
+메모(선택):
+태그(쉼표로 구분, 없으면 엔터):
+[오류] 날짜 형식이 올바르지 않습니다: 2024-13-40
+[힌트] 예: 2024-01-15 (YYYY-MM-DD)
+
+$ python3 -m budget_app summary --month 2026-13
+[오류] 존재하지 않는 월입니다: 2026-13
+[힌트] 01부터 12 사이의 월을 입력하세요.
+
+$ python3 -m budget_app import --from nope.csv
+[오류] 파일을 찾을 수 없습니다: nope.csv
+[힌트] 경로를 확인하세요. 예: import --from ./import.csv
+```
+
+**종료 코드 확인** — 직전 명령의 종료 코드는 `echo $?`로 볼 수 있습니다.
+
+```bash
+$ python3 -m budget_app list --limit 3 ; echo "exit code: $?"
+...
+exit code: 0            # 성공
+
+$ python3 -m budget_app delete --id TX-999999 ; echo "exit code: $?"
+[오류] 존재하지 않는 거래 id입니다: TX-999999
+[힌트] list 또는 search로 거래 id를 확인하세요.
+exit code: 1            # 오류 → 0이 아님
+```
+
+### 2-11. 백업 `backup` (보너스)
+
+```bash
+$ python3 -m budget_app backup
+[완료] 백업 생성: ./data/backup/20261107_213542 (4개 파일)
+```
+
+### 2-12. 반복 내역 `recurring` (보너스)
+
+```bash
+$ python3 -m budget_app recurring add
 타입(income/expense): income
 카테고리: etc
 금액(양수): 3000000
@@ -390,23 +308,406 @@ $ python -m budget_app recurring add
 태그(쉼표로 구분, 없으면 엔터): salary
 [저장 완료] 매달 25일 etc 3000000원(income)
 
-$ python -m budget_app recurring list
+$ python3 -m budget_app recurring list
 income | etc | 3000000원 | 매달 25일 | 월급
 
-$ python -m budget_app recurring apply --month 2024-01
-[완료] 2024-01에 반복 거래 2건을 생성했습니다.
-
-$ python -m budget_app recurring apply --month 2024-01
-[완료] 2024-01에 반복 거래 0건을 생성했습니다.
+$ python3 -m budget_app recurring apply --month 2026-12
+[완료] 2026-12에 반복 거래 1건을 생성했습니다.
+$ python3 -m budget_app recurring apply --month 2026-12      # 같은 달 재실행
+[완료] 2026-12에 반복 거래 0건을 생성했습니다.
 ```
 
-**중복 생성 방지**: 각 규칙은 이미 거래를 생성한 월 목록(`applied_months`)을 자기 자신에 기록합니다. `apply --month`를 같은 달에 여러 번 실행해도 이미 생성한 규칙은 건너뛰므로 거래가 중복 생성되지 않습니다.
+---
 
-**생성일이 1~28로 제한된 이유**: 2월처럼 28일까지만 있는 달에도 항상 안전하게 존재하는 날짜만 허용해서, 29~31일에 걸린 규칙이 특정 달에 못 만들어지는 예외 상황 자체를 막았습니다.
+## 3. 저장 정책
 
-**목록 출력 정렬**: `list`/`search`/`recurring apply`로 생성된 거래를 `list`로 볼 때, `id`/`date`/`type`/`category`/`amount` 컬럼이 고정폭으로 정렬되어 출력됩니다(외부 라이브러리 없이 `str.ljust`/`str.rjust`만 사용).
+| 항목 | 내용 |
+| --- | --- |
+| 포맷 | **JSONL** (한 줄 = JSON 객체 1개, UTF-8) |
+| 위치 | `./data` (실행한 폴더 기준). `--data-dir`로 변경 |
+| 파일 | `transactions.jsonl`(거래) · `categories.jsonl`(카테고리) · `budgets.jsonl`(월 예산) · `recurring.jsonl`(반복 규칙, 보너스) |
+| 최초 실행 | 폴더·파일 자동 생성. 카테고리가 비어 있으면 기본 4개 자동 생성(안 A) |
 
-## 개발 환경 / 제약
+실제 저장 모습:
 
-- Python 3.10 이상, 표준 라이브러리만 사용 (외부 패키지 설치 불필요 — 테스트도 `unittest`만 사용)
+```
+# data/transactions.jsonl
+{"id": "TX-000002", "type": "expense", "date": "2026-11-02", "amount": 18000, "category": "etc", "memo": "점심수정", "tags": ["meal"]}
+# data/categories.jsonl
+{"name": "transport"}
+# data/budgets.jsonl
+{"month": "2026-11", "amount": 100000}
+```
+
+거래 모델(`Transaction`)의 필드: `id`(유일, `TX-000001` 형식), `type`(income/expense), `date`(YYYY-MM-DD), `amount`(양수 정수), `category`, `memo`(선택), `tags`(선택, 리스트).
+
+---
+
+## 4. import / export CSV 스키마
+
+| column | required | 설명 |
+| --- | --- | --- |
+| date | Y | YYYY-MM-DD |
+| type | Y | income / expense |
+| category | Y | 등록된 카테고리 |
+| amount | Y | 양수 정수 |
+| memo | N | 문자열 |
+| tags | N | 쉼표(,) 구분 문자열 (쉼표가 있으면 `"meal,friends"`처럼 따옴표로 감쌈) |
+| 공통 | | **UTF-8, 첫 줄은 헤더** |
+
+예시 (`export`가 실제로 만든 파일):
+
+```csv
+date,type,category,amount,memo,tags
+2026-11-06,expense,etc,30000,저녁,"meal,friends"
+2026-11-05,expense,rent,150000,월세,
+2026-11-01,income,etc,3000000,용돈,allowance
+```
+
+- `import`는 필수 헤더(`date,type,category,amount`) 중 하나라도 없으면 파일 전체를 거부하고 어떤 헤더가 빠졌는지 알려줍니다.
+- 엑셀의 "CSV UTF-8" 저장본처럼 맨 앞에 BOM이 붙은 파일도 읽을 수 있습니다(`utf-8-sig`).
+
+---
+
+## 5. 구조 설명 (항목 2)
+
+### 5-1. 모듈 분리 — 8개 파일, 각자 하나의 책임
+
+| 모듈 | 책임 | 알고 있는 것 / 모르는 것 |
+| --- | --- | --- |
+| `models.py` | 데이터의 모양: `Transaction`, `Category`, `Budget`, `RecurringRule` (`dataclass`) + `to_dict`/`from_dict` | 파일·CLI를 모름 |
+| `exceptions.py` | 사용자에게 보여줄 오류: `AppError(message, hint)` → `ValidationError`, `NotFoundError` | 출력 방법을 모름 |
+| `utils.py` | 공용 도구: 날짜/월 검증, **원자적 파일 쓰기**, id 채번 | 업무 규칙을 모름 |
+| `storage.py` | **파일 읽기/쓰기만** (Repository 4종) | "금액은 양수" 같은 규칙을 모름 |
+| `services.py` | **업무 규칙과 입력 검증** (Service 5종) | 파일 형식·CLI 옵션을 모름 |
+| `decorators.py` | 공통 관심사(`track`): 로그·시간 측정·예외 처리 | 업무 로직을 모름 |
+| `cli.py` | `argparse`, `input()`, 출력 | 저장 방식을 모름 |
+| `__main__.py` | `python3 -m budget_app` 진입점 | |
+
+**어떻게 나눴나** — "무엇이 바뀔 때 어디를 고치는가"를 기준으로 잘랐습니다.
+
+```
+CLI (cli.py) ──▶ Service (services.py) ──▶ Repository (storage.py) ──▶ Model (models.py)
+        └────── track 데코레이터(decorators.py)가 모든 cmd_* 를 감쌈 ──────┘
+```
+
+- 옵션 이름을 바꾸면 `cli.py`만 고칩니다.
+- "금액은 양수여야 한다"는 규칙이 바뀌면 `services.py`만 고칩니다.
+- JSONL을 다른 포맷으로 바꾸면 `storage.py`만 고칩니다.
+- 의존 방향은 한쪽입니다. CLI는 서비스를 알지만 서비스는 CLI를 모르고, 서비스는 저장소를 알지만 저장소는 서비스를 모릅니다.
+
+### 5-2. 클래스 책임 경계 — 어떻게 정했나
+
+핵심 규칙은 두 가지입니다. **① 파일을 만지는 클래스와 규칙을 판단하는 클래스를 분리**하고, **② 다른 영역의 데이터가 필요하면 그 영역의 서비스에 물어본다**(저장소를 직접 열지 않는다).
+
+| 경계 | 한쪽의 책임 | 다른 쪽의 책임 | 경계가 보이는 코드 |
+| --- | --- | --- | --- |
+| `TransactionService` ↔ `TransactionRepository` | 입력 검증, id 발급 요청, 수정·삭제 흐름 | 줄 단위 읽기/쓰기, 원자적 교체, id 캐시 | 서비스는 `self.repo.append(tx)`만 호출. 파일 경로·JSON 변환은 저장소 안에서만 처리 |
+| `TransactionService` ↔ `CategoryService` | 거래의 category가 유효한지 *검증* | 카테고리 목록/존재 여부의 *진실* | 거래 검증 시 `self.category_service.exists(category)`로 질의 (카테고리 파일을 직접 열지 않음) |
+| `SummaryService` ↔ `TransactionService`/`BudgetService` | 합계·잔액·TOP N·사용률 *계산* | 거래·예산 데이터 *제공* | `SummaryService`는 `tx_service.iter_all()`, `budget_service.get_budget()`만 사용 |
+| `RecurringService` ↔ `TransactionService` | 규칙 관리, "이미 만든 달" 기록 | 실제 거래 생성·검증 | 규칙 적용 시 `tx_service.add(...)`를 그대로 재사용 → 반복 거래도 일반 거래와 같은 검증 통과 |
+
+상태 규칙도 정해 두었습니다.
+
+- 모델(`dataclass`)은 데이터 컨테이너일 뿐이라 필드를 바꿔도 파일에는 반영되지 않습니다. 반드시 저장소의 `append`/`rewrite_all`을 거쳐야 저장됩니다.
+- 서비스는 자체 상태 없이 매 호출마다 파일에서 읽습니다. **"파일에 쓰여 있는 것이 곧 진실"**이라서 서비스 인스턴스끼리 상태가 어긋날 일이 없습니다.
+- 유일한 예외는 `TransactionRepository._next_seq`(id 발급 카운터)입니다. 같은 프로세스 안에서만 쓰는 캐시이고, 새로 실행하면 파일에서 다시 계산합니다([7-2](#7-2-거래가-10만-건이-되면) ①).
+
+### 5-3. 파일 기반 update/delete를 안전하게 처리한 방법
+
+JSONL은 "중간 한 줄만 고치기"가 안 되므로 update/delete는 **전체를 다시 쓰는** 작업입니다. 쓰는 도중 실패해도 원본이 깨지지 않도록 `utils.atomic_write_lines`에서 다음 순서로 처리합니다.
+
+1. 원본과 **같은 폴더에** 임시 파일을 만든다 (`tempfile.mkstemp(dir=원본 폴더, prefix=".tmp_")`). 같은 파일시스템이어야 교체가 원자적으로 동작합니다.
+2. 새 내용을 **임시 파일에만** 전부 쓴다. 이 단계에서 실패(디스크 부족, 권한 등)해도 원본은 건드리지 않았습니다.
+3. 다 쓴 뒤에만 `os.replace(임시, 원본)`으로 한 번에 교체한다. 이 교체는 "옛 파일이거나 새 파일이거나" 둘 중 하나로만 보입니다(반쯤 쓰인 파일이 보이지 않음).
+4. 실패하면 임시 파일을 지우고, 원인을 `app.log`에 `[저장 실패] ... 원본을 그대로 유지합니다`로 남긴 뒤 오류를 사용자에게 알립니다.
+
+그 밖의 안전장치:
+
+- **검증이 먼저, 쓰기는 나중**: `update`는 새 값을 모두 검증한 뒤에만 쓰므로, 잘못된 값으로 파일을 덮어쓰는 일이 없습니다.
+- **존재하지 않는 id**는 파일을 건드리기 전에 `NotFoundError`로 끝냅니다(`delete`는 지운 뒤 개수가 그대로면 오류).
+- **여러 파일에 걸친 작업**(`category remove --replace-with`)은 `반복 규칙 이관 → 거래 이관 → 카테고리 삭제` 순서로 진행합니다. 파일마다는 원자적이지만 파일 *사이*는 트랜잭션이 아니라서, 중간에 끊겨도 **같은 명령을 다시 실행하면 이어서 완료**되도록(이미 옮긴 것은 0건으로 건너뜀) 순서를 정했습니다.
+- 한계: 정전 직후의 내용까지 보장하려면 `fsync`가 필요한데 쓰지 않았고, 두 프로세스가 동시에 쓰는 경우를 막는 파일 잠금도 없습니다. 개인용 단일 프로세스 사용을 전제로 했습니다.
+
+---
+
+## 6. 제너레이터 · 데코레이터 · 타입 힌트 (항목 3)
+
+### 6-1. 제너레이터로 스트리밍 처리
+
+**어떻게 구현했나** — `storage.py`의 `iter_all()`이 파일을 한 줄씩 읽고 `yield`로 객체를 하나씩 내보냅니다.
+
+```python
+def iter_all(self) -> Iterator[Transaction]:
+    _ensure_file(self.path)
+    with open(self.path, "r", encoding="utf-8") as f:
+        for line in f:                       # 파일 전체가 아니라 한 줄씩
+            ...
+            yield Transaction.from_dict(data)   # 호출자가 달라고 할 때 하나씩
+```
+
+- `list`: `heapq.nlargest(limit, repo.iter_all(), key=(date, id))` — 흘러오는 거래 중 **최신 N개만** 들고 있습니다.
+- `search`: 제너레이터를 `for`로 훑으면서 조건에 맞는 것만 결과에 담습니다.
+- `summary`: 제너레이터를 한 번 훑으면서 합계만 누적합니다.
+
+**왜 유리한가** — 파일 크기와 상관없이 메모리를 일정하게 씁니다. 100,000건(13.8 MB 파일)에서 `tracemalloc`으로 측정한 최대 메모리 사용량입니다.
+
+| 방식 | 최대 메모리 | 시간 |
+| --- | --- | --- |
+| 제너레이터로 순회 (`sum(1 for _ in repo.iter_all())`) | **0.03 MB** | 1.33초 |
+| `list(repo.iter_all())`로 전부 올림 | **48.00 MB** | 1.89초 |
+| `list --limit 10` 방식 (`nlargest`) | **0.03 MB** | 1.41초 |
+
+(측정 환경: Python 3.13, `tracemalloc` 켠 상태라 시간은 실제보다 느립니다. 숫자는 환경에 따라 달라지지만 "일정 vs 건수에 비례"라는 차이는 유지됩니다.)
+
+재현 방법(표준 라이브러리만 사용):
+
+```python
+# bench.py — 저장소 루트에서: python3 bench.py
+import json, os, tempfile, tracemalloc
+from budget_app.storage import TransactionRepository
+
+path = os.path.join(tempfile.mkdtemp(), "transactions.jsonl")
+with open(path, "w", encoding="utf-8") as f:
+    for i in range(1, 100_001):
+        f.write(json.dumps({"id": f"TX-{i:06d}", "type": "expense", "date": "2026-01-01",
+                            "amount": 1000, "category": "food", "memo": f"m{i}", "tags": []}) + "\n")
+repo = TransactionRepository(path)
+for name, fn in (("generator", lambda: sum(1 for _ in repo.iter_all())),
+                 ("list", lambda: len(list(repo.iter_all())))):
+    tracemalloc.start(); fn(); peak = tracemalloc.get_traced_memory()[1]; tracemalloc.stop()
+    print(f"{name:10s} 최대 메모리 {peak / 1e6:.2f} MB")
+```
+
+한계도 있습니다. `search`는 **조건에 맞는 결과**를 정렬하려고 리스트에 모으므로, 거의 모든 거래가 조건에 맞으면 결과 크기만큼 메모리를 씁니다. 파일 전체를 올리는 것보다는 작지만 "상수"는 아닙니다.
+
+### 6-2. 데코레이터로 공통 기능 분리
+
+**무엇인가** — `decorators.py`의 `track` 하나가 **모든 명령 함수(`cmd_*` 16개)** 에 `@track`으로 붙어 세 가지 공통 기능을 처리합니다.
+
+| 기능 | 하는 일 |
+| --- | --- |
+| 실행 로그 | 시작/완료/오류를 `app.log`에 기록 (`[시작] cmd_add`, `[완료] cmd_add (0.003초)`) |
+| 실행 시간 측정 | `time.perf_counter()`로 소요 시간을 재서 로그에 남김 |
+| 예외 처리 + 종료 코드 | `AppError`는 `[오류] 원인`/`[힌트] 해결 방법`으로, 예상 못 한 예외도 스택트레이스 없이 `[오류] 예상치 못한 문제가 발생했습니다`로 **표준 에러(stderr)** 에 출력. 성공이면 `0`, 실패면 `1`을 반환 |
+
+**왜 분리가 필요했나**
+
+1. **중복 제거**: 분리하지 않으면 16개 함수마다 `try/except`, 로그, 시간 측정 코드가 똑같이 반복됩니다. 하나를 고치면 15개를 같이 고쳐야 하고, 하나라도 빠지면 어떤 명령만 오류 문구가 다르거나 종료 코드가 0이 되는 버그가 생깁니다.
+2. **업무 흐름에 집중**: `cmd_*` 함수에는 "입력 받기 → 서비스 호출 → 결과 출력"만 남습니다.
+3. **일관성의 단일 지점**: 오류 문구 형식(`[오류]`/`[힌트]`)과 종료 코드 규칙이 `track` 한 곳에만 있습니다.
+4. 세 가지를 한 데코레이터로 묶은 이유는 모두 "명령 하나의 시작~끝"이라는 같은 생명주기를 공유하기 때문입니다(시작 시점에 로그를 남기고, 같은 구간의 시간을 재고, 같은 구간에서 난 예외를 잡음).
+
+```python
+@track
+def cmd_delete(args: argparse.Namespace, services: Services) -> None:
+    tx_service, *_ = services
+    tx_service.delete(args.tid)          # 없는 id면 NotFoundError가 올라옴
+    print(f"[삭제 완료] id={args.tid}")
+# → track이 NotFoundError를 잡아 "[오류] ..."/"[힌트] ..."를 출력하고 1을 반환
+```
+
+### 6-3. 타입 힌트
+
+**적용 범위** — 모든 공개 함수/메서드에 매개변수와 반환 타입을 붙였습니다. CLI의 `cmd_*`는 모두 `(args: argparse.Namespace, services: Services) -> None`으로 통일했고, `Services`는 서비스 4종 튜플의 타입 별칭(`Tuple[TransactionService, CategoryService, BudgetService, SummaryService]`)입니다.
+
+**실제 코드로 이점을 확인한 방법** — 같은 함수를 예로 세 단계로 확인했습니다.
+
+① **함수 계약이 코드에서 바로 읽힌다** (표준 라이브러리 `inspect`/`typing`으로 확인 가능)
+
+```python
+>>> import inspect, typing
+>>> from budget_app.services import TransactionService
+>>> inspect.signature(TransactionService.list_recent)
+(self, limit: int = 10) -> List[budget_app.models.Transaction]
+>>> typing.get_type_hints(TransactionService.list_recent)
+{'limit': <class 'int'>, 'return': typing.List[budget_app.models.Transaction]}
+```
+
+`list_recent`가 "정수 개수를 받아 `Transaction` 리스트를 돌려준다"는 사실을 구현을 읽지 않고도 알 수 있습니다.
+
+② **실행 전에 잘못된 사용을 잡는다** — 타입 힌트는 실행 시점에는 강제되지 않습니다. 일부러 틀린 호출을 하면 실행해야만 오류가 납니다.
+
+```python
+svc.list_recent(limit="10")
+# 실행 결과: TypeError: '<=' not supported between instances of 'str' and 'int'
+```
+
+타입 검사기(`mypy`)를 쓰면 **실행하기 전에** 같은 실수가 잡힙니다. (아래는 이 검증을 위해 따로 만든 연습용 파일 `demo_wrong.py`의 결과입니다.)
+
+```
+demo_wrong.py:4: error: Argument "limit" to "list_recent" of "TransactionService" has incompatible type "str"; expected "int"
+demo_wrong.py:6: error: "int" has no attribute "upper"        # txs[0].amount 는 int
+```
+
+③ **리팩터링 중 실제로 잡힌 문제** — `TransactionService.update()`가 "값이 None이면 기존 값 유지"를 `a if a is not None else b` 형태로 6번 반복했는데, `mypy`가 이 부분에서 타입 오류 9개를 냈습니다(`Any | str | None`을 `str` 자리에 넣을 수 없음). 런타임 오류는 아니었지만 "None이 섞일 수 있다"는 신호였기 때문에, `_pick(new: Optional[T], current: T) -> T` 헬퍼 하나로 바꿨고 `mypy budget_app` 결과가 **오류 0개**(`Success: no issues found in 9 source files`)가 됐습니다.
+
+> `mypy`는 **개발 중 검증 도구일 뿐 프로그램의 의존성이 아닙니다.** 프로그램 실행·테스트에는 필요 없고(`pip install mypy`를 하지 않아도 모든 기능이 동작), 위 ①은 표준 라이브러리만으로 확인됩니다.
+
+---
+
+## 7. 저장 포맷과 확장성 (항목 4)
+
+### 7-1. JSONL vs CSV — 왜 JSONL인가
+
+내부 저장은 **JSONL**, 외부와 주고받는 교환 포맷은 **CSV(import/export)** 로 용도를 나눴습니다.
+
+| 비교 항목 | JSONL | CSV |
+| --- | --- | --- |
+| 한 줄 = 레코드 하나 (append-only, 스트리밍에 유리) | O | O |
+| 리스트 필드(`tags`) 표현 | 네이티브 (`["meal","cafe"]`) | 쉼표가 컬럼 구분자와 충돌 → 따옴표 규칙 필요 |
+| `memo`에 쉼표·따옴표·줄바꿈이 섞여도 | JSON 이스케이프가 표준으로 처리 | 인용부호 규칙을 직접 신경 써야 함 |
+| 타입 보존 (정수 vs 문자열) | O | X (전부 문자열) |
+| 필드 추가 시 하위 호환 | 쉬움 (없는 키는 `.get()` 기본값) | 헤더·컬럼 순서가 바뀌면 파서 전체 영향 |
+| 스프레드시트에서 바로 열기 | X | O |
+| 사람이 눈으로 훑어보기 | 보통 (JSON 한 줄) | 쉬움 |
+
+**근거**: 이 앱의 데이터에는 리스트 타입(`tags`)과 자유 입력 문자열(`memo`)이 있어서, 이스케이프를 직접 관리하지 않아도 안전한 JSONL이 더 적합합니다. 반대로 `import/export`는 "스프레드시트에서 편집해서 주고받는" 상황이 목적이므로 보편적인 CSV가 맞습니다. **단점도 알고 선택했습니다**: JSONL은 엑셀로 바로 열 수 없고, 중간 한 줄만 수정하는 것이 안 되어(전체 재작성) 수정/삭제가 O(n)입니다.
+
+### 7-2. 거래가 10만 건이 되면
+
+가상의 숫자가 아니라 거래 100,000건짜리 파일(`transactions.jsonl`)을 만들어 명령 하나를 실행하는 **전체 시간**을 쟀습니다(프로세스 시작 포함, Python 3.13, 1회 측정).
+
+| 명령 | 시간 | 비고 |
+| --- | --- | --- |
+| `list --limit 10` | 0.26초 | `nlargest`로 최신 10개만 유지 |
+| `search --category food --from … --to …` (한 달) | 0.33초 | 전체 훑기 + 결과만 정렬 |
+| `summary --month 2026-03` | 0.26초 | 전체 훑으면서 누적 |
+| `export --month 2026-03` | 0.42초 | |
+| `add` (1건) | 0.34초 | 마지막 id를 알기 위해 파일을 1회 훑음 |
+| `update --id …` | **0.80초** | 전체 재작성 |
+| `delete --id …` | **0.95초** | 전체 재작성 |
+
+**병목은 어디인가** — 조회 계열은 "한 번 훑기(O(n))"이고 아직 견딜 만합니다. 가장 먼저 느려지는 곳은 **수정/삭제**입니다. 1건을 고치려고 10만 줄을 모두 다시 쓰기 때문이고(위 표에서 조회의 약 3배), 건수가 늘수록 선형으로 느려집니다.
+
+**어떻게 개선할까**
+
+| 병목 | 현재 상태 | 개선 방법 |
+| --- | --- | --- |
+| ① `next_id()`가 `add`마다 파일 전체를 재스캔 → `import` 시 O(n²) | **해결함**: 프로세스 안에서 최초 1회만 스캔하고 이후 메모리에서 +1 (`_next_seq`). 3,000건 add: 약 12.8초(개선 전 방식을 그대로 재현해 측정) → 0.16초, 5,000행 CSV import: 0.24초 | — |
+| ② `update`/`delete` 전체 재작성 | 미구현(제안) | id → byte offset 인덱스 파일을 두고 해당 줄만 갱신하거나, 표준 라이브러리 `sqlite3`로 전환해 인덱스 기반 갱신 (미션 제약상 "JSONL/CSV 중 1개"를 벗어나는 큰 변경이라 제안으로만 둠) |
+| ③ `list`가 전체 정렬 | **해결함**: `nlargest`로 최신 N개만 유지(O(n log N)). 추가 개선: 파일을 뒤에서부터 읽어 N개만 확보하면 O(N) | 역방향 읽기 / `deque(maxlen=N)` |
+| ④ `summary`가 월과 무관하게 전체를 읽음 | 미구현(제안) | 월별 파일 분리(`2026-03.jsonl`) 또는 월 인덱스. 단 "파일 3개" 제약과 충돌하므로 제안으로만 둠 |
+
+병렬 처리(멀티프로세싱)는 선택하지 않았습니다. 병목이 CPU 계산이 아니라 **디스크 순차 읽기**여서, 코어를 늘리기보다 읽는 양을 줄이는 쪽(인덱싱·파티셔닝)이 근본 해결책이라고 판단했습니다.
+
+### 7-3. import CSV에 깨진 행이 섞이면
+
+**선택한 방식: 부분 성공 + 건너뛴 행 리포트**
+
+1. **파일 전체 단위 문제**(파일 없음, 필수 헤더 누락)는 아무것도 저장하지 않고 즉시 거부합니다. 어떤 헤더가 빠졌는지 알려줍니다.
+2. **행 단위 문제**(날짜 형식 오류, 없는 카테고리, 숫자가 아닌 금액 등)는 그 행만 건너뛰고 나머지 정상 행은 저장합니다.
+3. 끝에 `imported=N, skipped=M`으로 **건수를 보고**하고, 건너뛴 행은 `app.log`에 **줄 번호(헤더=1행)와 사유**를 남깁니다.
+
+```bash
+$ python3 -m budget_app import --from import.csv
+[완료] imported=1, skipped=2
+[안내] 건너뛴 행의 상세 사유는 app.log에서 확인할 수 있습니다.
+$ grep 건너뜀 app.log
+... WARNING [import 건너뜀] import.csv 3행: 날짜 형식이 올바르지 않습니다: 2026-13-01
+... WARNING [import 건너뜀] import.csv 4행: 등록되지 않은 카테고리입니다: 여행
+```
+
+**왜 이 방식인가** (사용자 신뢰 관점)
+
+| 방식 | 장점 | 단점 |
+| --- | --- | --- |
+| 전체 롤백 | 파일이 "전부 아니면 전혀"라 상태가 단순 | 5,000행 중 1행 오타 때문에 전체가 거부됨 → 사용자가 어느 행인지 찾아 고칠 때까지 아무것도 못 씀 |
+| **부분 성공 + 리포트 (채택)** | 정상 데이터는 보존, 문제 행은 줄 번호로 찾을 수 있음 | 건너뛴 행을 고쳐 **다시 import할 때, 이미 들어간 정상 행까지 포함된 파일이면 중복 저장됨** |
+| 무조건 무시 | 구현 쉬움 | 몇 행이 빠졌는지 모르면 데이터가 조용히 사라짐 → 신뢰 훼손 |
+
+중요한 것은 "**조용히 사라지지 않는다**"는 점입니다. 건수를 반드시 보여주고, 사유를 줄 번호와 함께 남깁니다. 재import 시 중복을 피하려면 **건너뛴 행만 새 CSV로 만들어서** 다시 가져오세요.
+
+개선 제안(미구현): `import --dry-run`(검증만 하고 저장하지 않음), `import --strict`(한 행이라도 오류면 전체 거부), 중복 거래 감지.
+
+---
+
+## 8. 보너스 과제
+
+| 보너스 | 구현 | 배움 포인트 | 실행 |
+| --- | --- | --- | --- |
+| ① 백업 | `backup`이 `data/backup/<YYYYMMDD_HHMMSS>/`에 존재하는 데이터 파일을 복사 (최대 4개) | 파일 처리 + 운영 안전장치 | [2-11](#2-11-백업-backup-보너스) |
+| ② 반복 내역 | `recurring add/list/apply`. 규칙이 `applied_months`를 기록해 같은 달 중복 생성 방지, 생성일은 1~28로 제한(2월에도 항상 존재) | 규칙 기반 데이터 생성 + 예외 처리 | [2-12](#2-12-반복-내역-recurring-보너스) |
+| ③ 출력 포맷 정렬 | 외부 라이브러리 없이 `str.ljust/rjust`로 `list` 컬럼 정렬 | 콘솔 UX + 포맷터 분리 (`format_transaction`) | [2-3](#2-3-거래-목록-list) |
+| ④ 저장 원자성 강화 | 임시 파일에 쓰고 `os.replace`로 교체, 실패 시 원본 유지 | 파일 기반 트랜잭션/원자성 | [5-3](#5-3-파일-기반-updatedelete를-안전하게-처리한-방법) |
+
+**백업 복구 절차** (별도 명령 없이 수동 복원):
+
+```bash
+ls data/backup/                                              # 복구할 시점 확인
+cp data/backup/20261107_213542/*.jsonl data/                 # 해당 시점 파일로 덮어쓰기
+python3 -m budget_app list                                   # 정상 복구 확인
+```
+
+---
+
+## 9. 프로젝트 구조
+
+```
+budget_app/
+  __init__.py
+  __main__.py     # python3 -m budget_app 진입점
+  models.py       # Transaction, Category, Budget, RecurringRule
+  exceptions.py   # AppError, ValidationError, NotFoundError
+  decorators.py   # track (로그 / 시간 측정 / 예외 처리)
+  utils.py        # 검증, 원자적 파일 쓰기, id 생성
+  storage.py      # Repository 4종 (파일 I/O 전담)
+  services.py     # Service 5종 (검증 + 업무 로직)
+  cli.py          # argparse + cmd_* 핸들러
+tests/
+  test_services.py  # 서비스 단위 테스트 (23개)
+  test_cli.py       # CLI 통합 테스트: 종료 코드, export/import, 재실행 유지 (10개)
+data/               # 실행 시 자동 생성 (git 제외)
+app.log             # 실행 로그 (자동 생성, git 제외)
+```
+
+주요 클래스: `TransactionService` · `CategoryService` · `BudgetService` · `SummaryService` · `RecurringService` / `TransactionRepository` · `CategoryRepository` · `BudgetRepository` · `RecurringRepository`.
+
+---
+
+## 10. 오류 처리와 종료 코드
+
+- **스택트레이스 없이** `[오류] 원인` + `[힌트] 해결 방법`을 표준 에러(stderr)로 출력합니다. 모든 사용자 대상 오류는 `AppError(message, hint)` 하나의 형태로 만들고, 출력 문구 조립은 `track` 한 곳에서만 합니다.
+- **종료 코드**
+
+| 코드 | 의미 |
+| --- | --- |
+| `0` | 정상 종료 |
+| `1` | 프로그램이 처리한 오류(잘못된 입력, 없는 id/파일, 손상된 데이터 파일 등) 및 예상 못 한 예외 |
+| `2` | 명령행 사용법 오류(없는 명령/옵션, 필수 옵션 누락 등 — `argparse`) |
+
+- 데이터 파일이 손상된 경우도 안내합니다.
+  ```
+  [오류] 저장 파일을 읽을 수 없습니다: ./data/transactions.jsonl
+  [힌트] 데이터 파일이 손상되었을 수 있습니다. 백업 파일을 확인하세요.
+  ```
+- 자동 검증: `tests/test_cli.py`가 실제로 `python3 -m budget_app`을 실행해 종료 코드와 `Traceback` 미출력을 확인합니다.
+
+---
+
+## 11. 테스트
+
+```bash
+python3 -m unittest discover -s tests -t .      # 33개
+```
+
+각 테스트는 임시 폴더를 사용하므로 실제 `./data`, `app.log`를 건드리지 않습니다.
+
+- `test_services.py` (23개): 입력 검증, id 발급, 없는 id의 update/delete, 카테고리 중복/사용 중 삭제 차단, `--replace-with` 이관, 예산 사용률·초과 경고, 월별 TOP N, 반복 내역 중복 방지
+- `test_cli.py` (10개): 성공/오류 종료 코드와 스택트레이스 미출력, 2월·4월 `export --month`, import 부분 성공·헤더 누락·BOM·파일 없음, 재실행 후 데이터 유지
+
+---
+
+## 12. 알려진 한계
+
+- 두 프로세스가 동시에 같은 데이터 폴더에 쓰는 경우를 막는 잠금이 없습니다(개인용 단일 사용 가정).
+- 원자적 교체는 하지만 `fsync`는 하지 않아, 정전 직후의 내용까지 보장하지는 않습니다.
+- `import`를 같은 파일로 두 번 실행하면 거래가 중복 저장됩니다(중복 감지 없음).
+- `Ctrl+C`로 중단하면 파이썬 기본 중단 메시지가 출력됩니다(잘못된 입력 처리와는 별개).
+- 10만 건 이상에서 `update`/`delete`는 전체 재작성이라 건수에 비례해 느려집니다([7-2](#7-2-거래가-10만-건이-되면)).
+
+## 13. 개발 환경 / 제약
+
+- Python 3.10 이상, **표준 라이브러리만 사용** (외부 패키지 설치 불필요 — 테스트도 `unittest`만 사용)
 - 옵션 표기는 `--`(예: `--limit`, `--from`, `--month`)로 통일
+- 저장은 JSONL 3개 이상 파일(`transactions`/`categories`/`budgets`) 분리
